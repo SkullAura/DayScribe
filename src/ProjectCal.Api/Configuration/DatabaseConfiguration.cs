@@ -53,6 +53,7 @@ public static class DatabaseConfiguration
         }
 
         return configuration.GetConnectionString("Default")
+            ?? configuration.GetConnectionString("DefaultConnection")
             ?? (string.Equals(provider, "Sqlite", StringComparison.OrdinalIgnoreCase)
                 ? defaultSqliteConnectionString
                 : "Host=localhost;Port=5432;Database=projectcal;Username=projectcal;Password=projectcal");

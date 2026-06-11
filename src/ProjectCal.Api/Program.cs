@@ -55,7 +55,7 @@ if (app.Configuration.GetValue("Database:EnsureCreated", true))
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    await db.Database.EnsureCreatedAsync();
+    await DatabaseInitializer.EnsureProjectCalSchemaAsync(db, app.Configuration);
 }
 
 app.UseHttpsRedirection();

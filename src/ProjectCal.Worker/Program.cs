@@ -17,6 +17,12 @@ public static class WorkerHostProgram
         builder.Services.AddHostedService<TranscriptionWorker>();
 
         var host = builder.Build();
+        using (var scope = host.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            DatabaseInitializer.EnsureProjectCalSchemaAsync(db, host.Services.GetRequiredService<IConfiguration>()).GetAwaiter().GetResult();
+        }
+
         host.Run();
     }
 
