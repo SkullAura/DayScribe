@@ -553,11 +553,7 @@
                                 BorderThickness="1"
                                 CornerRadius="8">
                                 <StackPanel Spacing="12">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
+                                    <StackPanel Spacing="8">
                                         <StackPanel Spacing="2">
                                             <TextBlock
                                                 Foreground="{StaticResource InkBrush}"
@@ -567,19 +563,34 @@
                                             <TextBlock
                                                 Foreground="{StaticResource MutedTextBrush}"
                                                 FontSize="12"
-                                                Text="Record audio for transcription or attach photos." />
+                                                MaxLines="2"
+                                                Text="Record audio or attach photos."
+                                                TextWrapping="Wrap" />
                                         </StackPanel>
-                                        <ComboBox
-                                            x:Name="LanguageBox"
-                                            Grid.Column="1"
-                                            Width="88"
-                                            SelectedIndex="0">
-                                            <ComboBoxItem Content="auto" />
-                                            <ComboBoxItem Content="ru" />
-                                            <ComboBoxItem Content="uk" />
-                                            <ComboBoxItem Content="en" />
-                                        </ComboBox>
-                                    </Grid>
+                                        <Grid ColumnSpacing="8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <ComboBox
+                                                x:Name="LanguageBox"
+                                                Width="88"
+                                                SelectedIndex="0">
+                                                <ComboBoxItem Content="auto" />
+                                                <ComboBoxItem Content="ru" />
+                                                <ComboBoxItem Content="uk" />
+                                                <ComboBoxItem Content="en" />
+                                            </ComboBox>
+                                            <TextBlock
+                                                Grid.Column="1"
+                                                VerticalAlignment="Center"
+                                                Foreground="{StaticResource MutedTextBrush}"
+                                                FontSize="12"
+                                                MaxLines="2"
+                                                Text="Language for future transcripts"
+                                                TextWrapping="Wrap" />
+                                        </Grid>
+                                    </StackPanel>
 
                                     <Grid ColumnSpacing="10">
                                         <Grid.ColumnDefinitions>
@@ -626,13 +637,14 @@
                                                 Width="20"
                                                 Height="20"
                                                 IsActive="False" />
-                                            <TextBlock
-                                                x:Name="MediaActionText"
-                                                Grid.Column="1"
-                                                VerticalAlignment="Center"
-                                                Foreground="{StaticResource MutedTextBrush}"
-                                                Text="Media is ready"
-                                                TextWrapping="Wrap" />
+                                                <TextBlock
+                                                    x:Name="MediaActionText"
+                                                    Grid.Column="1"
+                                                    VerticalAlignment="Center"
+                                                    Foreground="{StaticResource MutedTextBrush}"
+                                                    MaxLines="3"
+                                                    Text="Media is ready"
+                                                    TextWrapping="Wrap" />
                                         </Grid>
                                     </Border>
 
@@ -657,8 +669,10 @@
                                                     Grid.Column="1"
                                                     VerticalAlignment="Center"
                                                     Foreground="{StaticResource MutedTextBrush}"
+                                                    MaxLines="2"
                                                     Text="No audio attached"
-                                                    TextTrimming="CharacterEllipsis" />
+                                                    TextTrimming="CharacterEllipsis"
+                                                    TextWrapping="Wrap" />
                                             </Grid>
 
                                             <Grid ColumnSpacing="8">

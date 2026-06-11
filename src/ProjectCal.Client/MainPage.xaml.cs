@@ -50,6 +50,7 @@ public sealed partial class MainPage : Page
     }
 
     private sealed record ResizeContext(LocalNote Note, FrameworkElement Host, ResizeEdge Edge);
+    private sealed record TimelineLayout(LocalNote Note, LocalAttachmentSummary? AttachmentSummary, int Lane, int LaneCount);
 
     public MainPage()
     {
@@ -594,22 +595,101 @@ public sealed partial class MainPage : Page
         {
             foreach (var child in notesCanvas.Children.OfType<FrameworkElement>())
             {
-                child.Width = Math.Max(120, args.NewSize.Width - 14);
+                if (child.Tag is TimelineLayout layout)
+                {
+                    ApplyTimelineNoteBounds(child, layout, args.NewSize.Width);
+                }
             }
         };
         contentLayer.Children.Add(notesCanvas);
 
-        foreach (var note in notes)
+        foreach (var layout in BuildTimelineLayouts(notes, attachmentSummaries))
         {
-            attachmentSummaries.TryGetValue(note.Id, out var attachmentSummary);
-            var noteVisual = BuildTimelineNote(note, attachmentSummary, panelAltBrush, inkBrush, mutedTextBrush, accentBrush, accentSoftBrush, lineBrush);
-            noteVisual.Width = Math.Max(120, notesCanvas.ActualWidth - 14);
-            Canvas.SetLeft(noteVisual, 7);
-            Canvas.SetTop(noteVisual, NoteStartMinute(note) * MinuteHeight);
+            var noteVisual = BuildTimelineNote(layout.Note, layout.AttachmentSummary, panelAltBrush, inkBrush, mutedTextBrush, accentBrush, accentSoftBrush, lineBrush);
+            noteVisual.Tag = layout;
+            ApplyTimelineNoteBounds(noteVisual, layout, notesCanvas.ActualWidth);
+            Canvas.SetTop(noteVisual, NoteStartMinute(layout.Note) * MinuteHeight);
             notesCanvas.Children.Add(noteVisual);
         }
 
         return root;
+    }
+
+    private IReadOnlyList<TimelineLayout> BuildTimelineLayouts(
+        IReadOnlyList<LocalNote> notes,
+        IReadOnlyDictionary<Guid, LocalAttachmentSummary> attachmentSummaries)
+    {
+        var sorted = notes
+            .OrderBy(NoteStartMinute)
+            .ThenBy(NoteEndMinute)
+            .ToArray();
+        var layouts = new List<TimelineLayout>();
+        var cluster = new List<LocalNote>();
+        var clusterEnd = -1;
+
+        foreach (var note in sorted)
+        {
+            var start = NoteStartMinute(note);
+            var end = NoteEndMinute(note);
+            if (cluster.Count > 0 && start >= clusterEnd)
+            {
+                AddClusterLayouts(cluster, layouts, attachmentSummaries);
+                cluster.Clear();
+            }
+
+            cluster.Add(note);
+            clusterEnd = Math.Max(clusterEnd, end);
+        }
+
+        AddClusterLayouts(cluster, layouts, attachmentSummaries);
+        return layouts;
+    }
+
+    private void AddClusterLayouts(
+        IReadOnlyList<LocalNote> cluster,
+        List<TimelineLayout> layouts,
+        IReadOnlyDictionary<Guid, LocalAttachmentSummary> attachmentSummaries)
+    {
+        if (cluster.Count == 0)
+        {
+            return;
+        }
+
+        var laneEnds = new List<int>();
+        var laneAssignments = new List<(LocalNote Note, int Lane)>();
+        foreach (var note in cluster.OrderBy(NoteStartMinute).ThenBy(NoteEndMinute))
+        {
+            var start = NoteStartMinute(note);
+            var end = NoteEndMinute(note);
+            var lane = laneEnds.FindIndex(x => x <= start);
+            if (lane < 0)
+            {
+                lane = laneEnds.Count;
+                laneEnds.Add(end);
+            }
+            else
+            {
+                laneEnds[lane] = end;
+            }
+
+            laneAssignments.Add((note, lane));
+        }
+
+        var laneCount = Math.Max(1, laneEnds.Count);
+        foreach (var assignment in laneAssignments)
+        {
+            attachmentSummaries.TryGetValue(assignment.Note.Id, out var attachmentSummary);
+            layouts.Add(new TimelineLayout(assignment.Note, attachmentSummary, assignment.Lane, laneCount));
+        }
+    }
+
+    private static void ApplyTimelineNoteBounds(FrameworkElement noteVisual, TimelineLayout layout, double canvasWidth)
+    {
+        var availableWidth = Math.Max(120, canvasWidth - 14);
+        var gap = layout.LaneCount > 1 ? 8 : 0;
+        var laneWidth = Math.Max(92, (availableWidth - gap * (layout.LaneCount - 1)) / layout.LaneCount);
+        noteVisual.Width = laneWidth;
+        Canvas.SetLeft(noteVisual, 7 + layout.Lane * (laneWidth + gap));
     }
 
     private FrameworkElement BuildTimelineNote(
@@ -1210,7 +1290,7 @@ public sealed partial class MainPage : Page
             AudioPlayerElement.Visibility = Visibility.Visible;
             _audioPlayer.Source = MediaSource.CreateFromStorageFile(file);
             _audioPlayer.Play();
-            AudioStatusText.Text = $"Playing {_selectedAudioAttachment.FileName}";
+            AudioStatusText.Text = "Playing latest audio";
             SetMediaAction("Playing audio.", false);
             StatusBox.Text = "Playing local audio. Use the player controls under the buttons.";
         });
@@ -1225,7 +1305,7 @@ public sealed partial class MainPage : Page
         }
 
         AudioPlayerElement.Visibility = Visibility.Collapsed;
-        AudioStatusText.Text = _selectedAudioAttachment is null ? "No audio attached" : $"Ready to play {_selectedAudioAttachment.FileName}";
+        AudioStatusText.Text = _selectedAudioAttachment is null ? "No audio attached" : "Ready to play latest audio";
         SetMediaAction(_selectedAudioAttachment is null ? "No audio selected." : "Audio ready.", false);
         StatusBox.Text = "Audio stopped.";
     }
@@ -1491,7 +1571,7 @@ public sealed partial class MainPage : Page
         {
             DispatcherQueue.TryEnqueue(() =>
             {
-                AudioStatusText.Text = _selectedAudioAttachment is null ? "No audio attached" : $"Ready to play {_selectedAudioAttachment.FileName}";
+                AudioStatusText.Text = _selectedAudioAttachment is null ? "No audio attached" : "Ready to play latest audio";
             });
         };
 
