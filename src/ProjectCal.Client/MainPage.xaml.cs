@@ -378,9 +378,25 @@ public sealed partial class MainPage : Page
         }
 
         var uploadedMedia = 0;
+        var skippedMedia = 0;
         foreach (var attachment in await _store.GetPendingAttachmentsAsync())
         {
-            await _api.UploadAttachmentAsync(attachment, GetSelectedLanguage());
+            if (!await EnsureServerNoteForAttachmentAsync(attachment.NoteId))
+            {
+                skippedMedia++;
+                continue;
+            }
+
+            try
+            {
+                await _api.UploadAttachmentAsync(attachment, GetSelectedLanguage());
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                await EnsureServerNoteForAttachmentAsync(attachment.NoteId);
+                await _api.UploadAttachmentAsync(attachment, GetSelectedLanguage());
+            }
+
             await _store.MarkAttachmentUploadedAsync(attachment.Id);
             uploadedMedia++;
         }
@@ -388,34 +404,76 @@ public sealed partial class MainPage : Page
         _lastSyncAt = response.ServerTime;
         if (uploadedMedia > 0)
         {
-            StatusBox.Text = $"Uploaded {uploadedMedia} media file(s). Waiting briefly for transcription...";
+            StatusBox.Text = $"Uploaded {uploadedMedia} media file(s). Waiting for transcription...";
             MediaStateText.Text = "Uploaded";
             TranscriptStateText.Text = "Processing";
-            await Task.Delay(TimeSpan.FromSeconds(7));
-
-            var transcriptionResponse = await _api.SyncAsync(new SyncRequest(_lastSyncAt, []));
-            foreach (var note in transcriptionResponse.Notes)
-            {
-                await _store.ApplyServerNoteAsync(note);
-            }
-
-            foreach (var transcript in transcriptionResponse.Transcripts)
-            {
-                await _store.ApplyServerTranscriptAsync(transcript);
-            }
-
-            _lastSyncAt = transcriptionResponse.ServerTime;
-            StatusBox.Text = "Synced. Uploaded media and checked transcription.";
+            await PullTranscriptionUpdatesAsync();
+            StatusBox.Text = skippedMedia > 0
+                ? $"Synced. Uploaded {uploadedMedia} media file(s), skipped {skippedMedia} stale file(s)."
+                : "Synced. Uploaded media and checked transcription.";
             SyncStateText.Text = "Done";
         }
         else
         {
-            StatusBox.Text = $"Synced {response.Notes.Count} notes. Checked transcription updates.";
+            StatusBox.Text = skippedMedia > 0
+                ? $"Synced {response.Notes.Count} notes. Skipped {skippedMedia} stale media file(s)."
+                : $"Synced {response.Notes.Count} notes. Checked transcription updates.";
             SyncStateText.Text = "Done";
         }
 
         await RefreshSelectedNoteDetailsAsync();
         await ReloadAsync();
+    }
+
+    private async Task<bool> EnsureServerNoteForAttachmentAsync(Guid noteId)
+    {
+        var note = await _store.GetNoteByIdAsync(noteId);
+        if (note is null || note.DeletedAt is not null)
+        {
+            return false;
+        }
+
+        var mutation = new SyncNoteMutation(
+            SyncOperation.Upsert,
+            new UpsertNoteRequest(note.Id, note.Title, note.Body, note.Date, note.StartTime, note.EndTime, note.SyncVersion));
+
+        var response = await _api.SyncAsync(new SyncRequest(_lastSyncAt, [mutation]));
+        foreach (var serverNote in response.Notes)
+        {
+            await _store.ApplyServerNoteAsync(serverNote);
+        }
+
+        foreach (var transcript in response.Transcripts)
+        {
+            await _store.ApplyServerTranscriptAsync(transcript);
+        }
+
+        _lastSyncAt = response.ServerTime;
+        return true;
+    }
+
+    private async Task PullTranscriptionUpdatesAsync()
+    {
+        for (var attempt = 0; attempt < 6; attempt++)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5));
+            var response = await _api.SyncAsync(new SyncRequest(_lastSyncAt, []));
+            foreach (var note in response.Notes)
+            {
+                await _store.ApplyServerNoteAsync(note);
+            }
+
+            foreach (var transcript in response.Transcripts)
+            {
+                await _store.ApplyServerTranscriptAsync(transcript);
+            }
+
+            _lastSyncAt = response.ServerTime;
+            if (response.Transcripts.Any(x => x.Status is TranscriptStatus.Done or TranscriptStatus.Failed))
+            {
+                return;
+            }
+        }
     }
 
     private async void DayPicker_DateChanged(object sender, DatePickerValueChangedEventArgs e)

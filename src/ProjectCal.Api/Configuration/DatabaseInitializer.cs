@@ -15,8 +15,7 @@ public static class DatabaseInitializer
         }
 
         await db.Database.EnsureCreatedAsync(cancellationToken);
-
-        if (db.Database.IsRelational() && !await HasProjectCalTablesAsync(db, cancellationToken))
+        if (db.Database.IsNpgsql() && !await HasProjectCalTablesAsync(db, cancellationToken))
         {
             var creator = db.GetService<IRelationalDatabaseCreator>();
             await creator.CreateTablesAsync(cancellationToken);
@@ -25,23 +24,16 @@ public static class DatabaseInitializer
 
     private static async Task<bool> HasProjectCalTablesAsync(AppDbContext db, CancellationToken cancellationToken)
     {
-        if (db.Database.IsNpgsql())
+        var connection = db.Database.GetDbConnection();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT to_regclass('public.\"Transcripts\"') IS NOT NULL";
+
+        if (connection.State != System.Data.ConnectionState.Open)
         {
-            var connection = db.Database.GetDbConnection();
-            await using var command = connection.CreateCommand();
-            command.CommandText = "SELECT to_regclass('public.\"Transcripts\"') IS NOT NULL";
-
-            if (connection.State != System.Data.ConnectionState.Open)
-            {
-                await connection.OpenAsync(cancellationToken);
-            }
-
-            var result = await command.ExecuteScalarAsync(cancellationToken);
-            return result is true;
+            await connection.OpenAsync(cancellationToken);
         }
 
-        return await db.Users.AnyAsync(cancellationToken)
-            || await db.Notes.AnyAsync(cancellationToken)
-            || await db.Transcripts.AnyAsync(cancellationToken);
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result is true;
     }
 }

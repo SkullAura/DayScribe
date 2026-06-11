@@ -126,7 +126,7 @@ public sealed class ProjectCalApiClient
 
         var body = await response.Content.ReadAsStringAsync();
         var message = TryReadError(body) ?? FriendlyStatusMessage(response.StatusCode);
-        throw new InvalidOperationException(message);
+        throw new HttpRequestException(message, null, response.StatusCode);
     }
 
     private static string? TryReadError(string body)
