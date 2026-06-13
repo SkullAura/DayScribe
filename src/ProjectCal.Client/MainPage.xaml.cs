@@ -259,8 +259,8 @@ public sealed partial class MainPage : Page
                 });
 
                 var folder = await ApplicationData.Current.LocalFolder.CreateFolderAsync("ProjectCalRecordings", CreationCollisionOption.OpenIfExists);
-                _recordingFile = await folder.CreateFileAsync($"{Guid.NewGuid():N}.m4a", CreationCollisionOption.GenerateUniqueName);
-                await _mediaCapture.StartRecordToStorageFileAsync(MediaEncodingProfile.CreateM4a(AudioEncodingQuality.Auto), _recordingFile);
+                _recordingFile = await folder.CreateFileAsync($"{Guid.NewGuid():N}.wav", CreationCollisionOption.GenerateUniqueName);
+                await _mediaCapture.StartRecordToStorageFileAsync(MediaEncodingProfile.CreateWav(AudioEncodingQuality.Auto), _recordingFile);
                 _isRecording = true;
                 SetRecordButtonContent(Symbol.Stop, T("stopRecording"));
                 StatusBox.Text = T("recordingStarted");

@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Net.Http.Headers;
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using ProjectCal.Api.Data;
@@ -90,10 +91,16 @@ public sealed class SpeechToTextService(HttpClient httpClient, IConfiguration co
 {
     public async Task<string> TranscribeAsync(string storedPath, string language, CancellationToken cancellationToken)
     {
+        var audioPath = ResolveAudioPath(storedPath);
+        if (TryResolveLocalWhisper(out var executablePath, out var modelPath) && IsWhisperSupportedAudio(audioPath))
+        {
+            return await TranscribeWithLocalWhisperAsync(audioPath, language, executablePath, modelPath, cancellationToken);
+        }
+
         var apiKey = configuration["OpenAI:ApiKey"] ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY");
         if (!string.IsNullOrWhiteSpace(apiKey))
         {
-            return await TranscribeWithOpenAIAsync(storedPath, language, apiKey, cancellationToken);
+            return await TranscribeWithOpenAIAsync(audioPath, language, apiKey, cancellationToken);
         }
 
         var endpoint = configuration["Transcription:Endpoint"];
@@ -109,14 +116,66 @@ public sealed class SpeechToTextService(HttpClient httpClient, IConfiguration co
         return payload?.Text ?? "";
     }
 
-    private async Task<string> TranscribeWithOpenAIAsync(string storedPath, string language, string apiKey, CancellationToken cancellationToken)
+    private async Task<string> TranscribeWithLocalWhisperAsync(
+        string audioPath,
+        string language,
+        string executablePath,
+        string modelPath,
+        CancellationToken cancellationToken)
     {
-        var audioPath = ResolveAudioPath(storedPath);
         if (!File.Exists(audioPath))
         {
             throw new FileNotFoundException("Audio file was not found.", audioPath);
         }
 
+        var outputBase = Path.Combine(Path.GetTempPath(), "ProjectCal", "whisper", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.GetDirectoryName(outputBase)!);
+        var outputTextPath = outputBase + ".txt";
+
+        using var process = new Process();
+        process.StartInfo = new ProcessStartInfo
+        {
+            FileName = executablePath,
+            WorkingDirectory = Path.GetDirectoryName(executablePath)!,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        process.StartInfo.ArgumentList.Add("-m");
+        process.StartInfo.ArgumentList.Add(modelPath);
+        process.StartInfo.ArgumentList.Add("-f");
+        process.StartInfo.ArgumentList.Add(audioPath);
+        process.StartInfo.ArgumentList.Add("-l");
+        process.StartInfo.ArgumentList.Add(NormalizeWhisperLanguage(language));
+        process.StartInfo.ArgumentList.Add("-otxt");
+        process.StartInfo.ArgumentList.Add("-of");
+        process.StartInfo.ArgumentList.Add(outputBase);
+        process.StartInfo.ArgumentList.Add("-nt");
+        process.StartInfo.ArgumentList.Add("-np");
+
+        process.Start();
+        var standardOutputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+        var standardErrorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+        await process.WaitForExitAsync(cancellationToken);
+        var standardOutput = await standardOutputTask;
+        var standardError = await standardErrorTask;
+
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"Local whisper.cpp failed with exit code {process.ExitCode}. {standardError}");
+        }
+
+        var text = File.Exists(outputTextPath)
+            ? await File.ReadAllTextAsync(outputTextPath, cancellationToken)
+            : standardOutput;
+
+        TryDelete(outputTextPath);
+        return text.Trim();
+    }
+
+    private async Task<string> TranscribeWithOpenAIAsync(string audioPath, string language, string apiKey, CancellationToken cancellationToken)
+    {
         using var form = new MultipartFormDataContent();
         await using var stream = File.OpenRead(audioPath);
         using var file = new StreamContent(stream);
@@ -181,7 +240,7 @@ public sealed class SpeechToTextService(HttpClient httpClient, IConfiguration co
         while (directory is not null)
         {
             var candidate = Path.Combine(new[] { directory.FullName }.Concat(pathParts).ToArray());
-            if (Directory.Exists(candidate))
+            if (Directory.Exists(candidate) || File.Exists(candidate))
             {
                 return candidate;
             }
@@ -205,6 +264,52 @@ public sealed class SpeechToTextService(HttpClient httpClient, IConfiguration co
             ".mpga" => "audio/mpeg",
             _ => "application/octet-stream"
         };
+    }
+
+    private bool TryResolveLocalWhisper(out string executablePath, out string modelPath)
+    {
+        executablePath = "";
+        modelPath = "";
+
+        var configuredExecutable = configuration["Transcription:WhisperExecutablePath"];
+        var configuredModel = configuration["Transcription:WhisperModelPath"];
+        var executableCandidates = new[]
+        {
+            configuredExecutable,
+            Path.Combine(AppContext.BaseDirectory, "Tools", "whisper", "win-x64", "whisper-cli.exe"),
+            FindUpwards("src", "ProjectCal.Worker", "Tools", "whisper", "win-x64", "whisper-cli.exe")
+        }.Where(x => !string.IsNullOrWhiteSpace(x)).Cast<string>();
+        var modelCandidates = new[]
+        {
+            configuredModel,
+            Path.Combine(AppContext.BaseDirectory, "Models", "whisper", "ggml-tiny.bin"),
+            FindUpwards("src", "ProjectCal.Worker", "Models", "whisper", "ggml-tiny.bin")
+        }.Where(x => !string.IsNullOrWhiteSpace(x)).Cast<string>();
+
+        executablePath = executableCandidates.FirstOrDefault(File.Exists) ?? "";
+        modelPath = modelCandidates.FirstOrDefault(File.Exists) ?? "";
+        return !string.IsNullOrWhiteSpace(executablePath) && !string.IsNullOrWhiteSpace(modelPath);
+    }
+
+    private static bool IsWhisperSupportedAudio(string audioPath)
+    {
+        return Path.GetExtension(audioPath).ToLowerInvariant() is ".flac" or ".mp3" or ".ogg" or ".wav";
+    }
+
+    private static string NormalizeWhisperLanguage(string language)
+    {
+        return string.IsNullOrWhiteSpace(language) ? "auto" : language.ToLowerInvariant();
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch
+        {
+        }
     }
 
     private sealed record TranscriptionResponse(string Text);

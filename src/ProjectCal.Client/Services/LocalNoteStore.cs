@@ -275,7 +275,7 @@ public sealed class LocalNoteStore
         command.Parameters.AddWithValue("$type", (int)type);
         command.Parameters.AddWithValue("$local_path", localPath);
         command.Parameters.AddWithValue("$file_name", file.Name);
-        command.Parameters.AddWithValue("$mime_type", type == AttachmentType.Audio ? "audio/mp4" : "image/jpeg");
+        command.Parameters.AddWithValue("$mime_type", type == AttachmentType.Audio ? AudioMimeType(file.Name) : PhotoMimeType(file.Name));
         command.Parameters.AddWithValue("$size", (long)properties.Size);
         await command.ExecuteNonQueryAsync();
     }
@@ -449,6 +449,32 @@ public sealed class LocalNoteStore
     }
 
     private SqliteConnection Open() => new($"Data Source={_dbPath}");
+
+    private static string AudioMimeType(string fileName)
+    {
+        return Path.GetExtension(fileName).ToLowerInvariant() switch
+        {
+            ".wav" => "audio/wav",
+            ".mp3" => "audio/mpeg",
+            ".m4a" => "audio/mp4",
+            ".mp4" => "audio/mp4",
+            ".ogg" => "audio/ogg",
+            ".flac" => "audio/flac",
+            _ => "application/octet-stream"
+        };
+    }
+
+    private static string PhotoMimeType(string fileName)
+    {
+        return Path.GetExtension(fileName).ToLowerInvariant() switch
+        {
+            ".png" => "image/png",
+            ".webp" => "image/webp",
+            ".bmp" => "image/bmp",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            _ => "image/jpeg"
+        };
+    }
 
     private static async Task ExecuteAsync(SqliteConnection connection, string sql)
     {
