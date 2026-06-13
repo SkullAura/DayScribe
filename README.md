@@ -70,6 +70,7 @@ You can also use `DATABASE_URL=postgresql://...`; the app converts it to an Npgs
 The API still stores uploaded media on the local filesystem, so the API and worker must see the same media path when deployed separately.
 
 For the full cloud sync checklist, see [`docs/CLOUD_SETUP.md`](docs/CLOUD_SETUP.md).
+For Oracle Cloud Always Free deployment, see [`docs/ORACLE_ALWAYS_FREE.md`](docs/ORACLE_ALWAYS_FREE.md).
 In the Windows client, `Cloud API URL` must point to the deployed `ProjectCal.Api` backend, not directly to Supabase.
 
 ## GitHub

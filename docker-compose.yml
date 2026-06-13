@@ -46,12 +46,15 @@ services:
     environment:
       Database__Provider: Postgres
       ConnectionStrings__Default: ${SUPABASE_DB_CONNECTION_STRING:-Host=postgres;Port=5432;Database=projectcal;Username=projectcal;Password=projectcal}
+      Storage__RootPath: /app/App_Data/media
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OpenAI__TranscriptionModel: ${OpenAI__TranscriptionModel:-gpt-4o-mini-transcribe}
       Transcription__StubText: Transcription worker processed this audio. Set OPENAI_API_KEY for real speech-to-text.
     depends_on:
       - postgres
       - api
+    volumes:
+      - api-media:/app/App_Data/media
 
 volumes:
   postgres-data:

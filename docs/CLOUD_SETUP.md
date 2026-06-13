@@ -55,6 +55,8 @@ OpenAI__TranscriptionModel=gpt-4o-mini-transcribe
 
 Important: API and Worker must see the same media folder. If your cloud platform runs them as separate services without a shared volume, audio/photo metadata can sync but media/transcription can fail. The next production step is S3-compatible storage.
 
+For a one-VM Oracle Cloud Always Free setup, follow [`ORACLE_ALWAYS_FREE.md`](ORACLE_ALWAYS_FREE.md). It runs API and Worker together with a shared Docker volume.
+
 ## 4. Health check
 
 After deploy, open:

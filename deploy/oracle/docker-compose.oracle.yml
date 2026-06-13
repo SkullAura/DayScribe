@@ -1,0 +1,40 @@
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: src/ProjectCal.Api/Dockerfile
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      Database__Provider: Postgres
+      Database__EnsureCreated: "true"
+      SUPABASE_DB_CONNECTION_STRING: ${SUPABASE_DB_CONNECTION_STRING}
+      Jwt__Issuer: ${Jwt__Issuer:-ProjectCal}
+      Jwt__Audience: ${Jwt__Audience:-ProjectCal.Client}
+      Jwt__SigningKey: ${Jwt__SigningKey}
+      Storage__RootPath: /app/App_Data/media
+    ports:
+      - "8080:8080"
+    volumes:
+      - projectcal-media:/app/App_Data/media
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: src/ProjectCal.Worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      Database__Provider: Postgres
+      Database__EnsureCreated: "true"
+      SUPABASE_DB_CONNECTION_STRING: ${SUPABASE_DB_CONNECTION_STRING}
+      Storage__RootPath: /app/App_Data/media
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OpenAI__TranscriptionModel: ${OpenAI__TranscriptionModel:-gpt-4o-mini-transcribe}
+      Transcription__StubText: Transcription worker processed this audio. Set OPENAI_API_KEY for real speech-to-text.
+    depends_on:
+      - api
+    volumes:
+      - projectcal-media:/app/App_Data/media
+
+volumes:
+  projectcal-media:
