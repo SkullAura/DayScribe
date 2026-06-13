@@ -1,11 +1,3 @@
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Imaging;
-using Microsoft.UI.Text;
-using ProjectCal.Shared;
-using ProjectCal_Client.Services;
 using System.Diagnostics;
 using System.Globalization;
 using System.Net.Http.Headers;
@@ -13,6 +5,14 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.UI.Text;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
+using ProjectCal.Shared;
+using ProjectCal_Client.Services;
 using Windows.Globalization;
 using Windows.Media.Capture;
 using Windows.Media.Core;
@@ -558,8 +558,8 @@ public sealed partial class MainPage : Page
             await PullTranscriptionUpdatesAsync();
             StatusBox.Text = (downloadedMedia, skippedMedia) switch
             {
-                (> 0, > 0) => $"Synced. Uploaded {uploadedMedia}, downloaded {downloadedMedia}, skipped {skippedMedia} media file(s).",
-                (> 0, _) => $"Synced. Uploaded {uploadedMedia} and downloaded {downloadedMedia} media file(s).",
+                ( > 0, > 0) => $"Synced. Uploaded {uploadedMedia}, downloaded {downloadedMedia}, skipped {skippedMedia} media file(s).",
+                ( > 0, _) => $"Synced. Uploaded {uploadedMedia} and downloaded {downloadedMedia} media file(s).",
                 (_, > 0) => $"Synced. Uploaded {uploadedMedia} media file(s), skipped {skippedMedia} stale file(s).",
                 _ => "Synced. Uploaded media and checked transcription."
             };
@@ -570,8 +570,8 @@ public sealed partial class MainPage : Page
         {
             StatusBox.Text = (downloadedMedia, skippedMedia) switch
             {
-                (> 0, > 0) => $"Synced {response.Notes.Count} notes. Downloaded {downloadedMedia} media file(s), skipped {skippedMedia}.",
-                (> 0, _) => $"Synced {response.Notes.Count} notes. Downloaded {downloadedMedia} media file(s).",
+                ( > 0, > 0) => $"Synced {response.Notes.Count} notes. Downloaded {downloadedMedia} media file(s), skipped {skippedMedia}.",
+                ( > 0, _) => $"Synced {response.Notes.Count} notes. Downloaded {downloadedMedia} media file(s).",
                 (_, > 0) => $"Synced {response.Notes.Count} notes. Skipped {skippedMedia} stale media file(s).",
                 _ => $"Synced {response.Notes.Count} notes. Checked transcription updates."
             };
