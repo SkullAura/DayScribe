@@ -77,7 +77,8 @@ app.UseExceptionHandler(errorApp =>
         {
             error = "Internal server error.",
             exception = feature?.Error.GetType().Name,
-            detail = feature?.Error.Message
+            detail = feature?.Error.Message,
+            inner = DiagnosticsHelpers.BuildExceptionChain(feature?.Error)
         }).ExecuteAsync(context);
     });
 });
@@ -523,6 +524,20 @@ app.MapGet("/api/admin/stats", async (AppDbContext db, CancellationToken ct) =>
 app.Run();
 
 public partial class Program;
+
+internal static class DiagnosticsHelpers
+{
+    public static string[] BuildExceptionChain(Exception? exception)
+    {
+        var messages = new List<string>();
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            messages.Add($"{current.GetType().Name}: {current.Message}");
+        }
+
+        return messages.ToArray();
+    }
+}
 
 internal static class TranscriptSync
 {
