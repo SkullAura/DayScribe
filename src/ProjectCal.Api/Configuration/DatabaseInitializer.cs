@@ -14,12 +14,18 @@ public static class DatabaseInitializer
             return;
         }
 
-        await db.Database.EnsureCreatedAsync(cancellationToken);
-        if (db.Database.IsNpgsql() && !await HasProjectCalTablesAsync(db, cancellationToken))
+        if (db.Database.IsNpgsql())
         {
-            var creator = db.GetService<IRelationalDatabaseCreator>();
-            await creator.CreateTablesAsync(cancellationToken);
+            if (!await HasProjectCalTablesAsync(db, cancellationToken))
+            {
+                var creator = db.GetService<IRelationalDatabaseCreator>();
+                await creator.CreateTablesAsync(cancellationToken);
+            }
+
+            return;
         }
+
+        await db.Database.EnsureCreatedAsync(cancellationToken);
     }
 
     private static async Task<bool> HasProjectCalTablesAsync(AppDbContext db, CancellationToken cancellationToken)
@@ -27,6 +33,7 @@ public static class DatabaseInitializer
         var connection = db.Database.GetDbConnection();
         await using var command = connection.CreateCommand();
         command.CommandText = "SELECT to_regclass('public.\"Transcripts\"') IS NOT NULL";
+        command.CommandTimeout = 10;
 
         if (connection.State != System.Data.ConnectionState.Open)
         {
