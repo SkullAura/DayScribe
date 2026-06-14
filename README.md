@@ -55,7 +55,7 @@ Supabase dashboard -> Project Settings -> Database -> Connection string.
 For PowerShell local runs:
 
 ```powershell
-$env:SUPABASE_DB_CONNECTION_STRING = "Host=...;Port=6543;Database=postgres;Username=postgres....;Password=...;SSL Mode=Require"
+$env:SUPABASE_DB_CONNECTION_STRING = "Host=...;Port=5432;Database=postgres;Username=postgres....;Password=...;SSL Mode=Require"
 $env:Database__Provider = "Postgres"
 $env:Jwt__SigningKey = "replace-with-a-long-random-signing-key-at-least-32-bytes"
 

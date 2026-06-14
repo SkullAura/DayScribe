@@ -36,7 +36,7 @@ Required environment variables:
 
 ```text
 Database__Provider=Postgres
-SUPABASE_DB_CONNECTION_STRING=Host=...;Port=6543;Database=postgres;Username=postgres....;Password=...;SSL Mode=Require
+SUPABASE_DB_CONNECTION_STRING=Host=...;Port=5432;Database=postgres;Username=postgres....;Password=...;SSL Mode=Require
 Storage__RootPath=/app/App_Data/media
 ASPNETCORE_URLS=http://0.0.0.0:10000
 Jwt__Issuer=ProjectCal
