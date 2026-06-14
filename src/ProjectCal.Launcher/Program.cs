@@ -6,11 +6,11 @@ const string ManagedCloudApiUrl = "";
 var root = AppContext.BaseDirectory;
 var logs = Path.Combine(
     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-    "ProjectCal",
+    "NotesMuchachos",
     "logs");
 var data = Path.Combine(
     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-    "ProjectCal",
+    "NotesMuchachos",
     "data");
 var media = Path.Combine(data, "media");
 Directory.CreateDirectory(logs);
@@ -24,7 +24,7 @@ var managedApiUrl = ResolveManagedApiUrl();
 
 if (!File.Exists(apiExe) || !File.Exists(workerExe) || !File.Exists(clientExe))
 {
-    MessageBox("ProjectCal installation is incomplete. Reinstall the application.");
+    MessageBox("NotesMuchachos installation is incomplete. Reinstall the application.");
     return 1;
 }
 
@@ -66,7 +66,7 @@ void StartHidden(string fileName, string arguments, string logName, bool startOn
 
     var logs = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "ProjectCal",
+        "NotesMuchachos",
         "logs");
 
     var startInfo = new ProcessStartInfo
@@ -140,7 +140,7 @@ static async Task<bool> IsApiReadyAsync()
 
 static void MessageBox(string text)
 {
-    _ = NativeMethods.MessageBox(IntPtr.Zero, text, "ProjectCal", 0x00000010);
+    _ = NativeMethods.MessageBox(IntPtr.Zero, text, "NotesMuchachos", 0x00000010);
 }
 
 internal static class ProcessExtensions

@@ -136,7 +136,7 @@
                             Foreground="{StaticResource InkBrush}"
                             FontSize="32"
                             FontWeight="SemiBold"
-                            Text="ProjectCal" />
+                            Text="NotesMuchachos" />
                         <TextBlock
                             x:Name="AuthSubtitleText"
                             Foreground="{StaticResource MutedTextBrush}"
@@ -289,7 +289,7 @@
                             Foreground="{StaticResource InkBrush}"
                             FontSize="26"
                             FontWeight="SemiBold"
-                            Text="ProjectCal" />
+                            Text="NotesMuchachos" />
                         <TextBlock
                             x:Name="UserLabel"
                             Foreground="{StaticResource MutedTextBrush}"

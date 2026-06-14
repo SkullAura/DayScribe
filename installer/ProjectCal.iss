@@ -1,4 +1,4 @@
-#define AppName "ProjectCal"
+#define AppName "NotesMuchachos"
 #define AppVersion "1.0.0"
 #ifndef SourceDir
 #define SourceDir "..\artifacts\installer\input"
@@ -11,17 +11,17 @@
 AppId={{6B4FEF6F-835D-4B0F-A1F7-2F59F20D4117}
 AppName={#AppName}
 AppVersion={#AppVersion}
-AppPublisher=ProjectCal
-DefaultDirName={autopf}\ProjectCal
-DefaultGroupName=ProjectCal
+AppPublisher=NotesMuchachos
+DefaultDirName={autopf}\NotesMuchachos
+DefaultGroupName=NotesMuchachos
 DisableProgramGroupPage=yes
 OutputDir={#OutputDir}
-OutputBaseFilename=ProjectCalSetup
+OutputBaseFilename=NotesMuchachosSetup
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-SetupIconFile={#SourceDir}\ProjectCal.ico
+SetupIconFile={#SourceDir}\NotesMuchachos.ico
 WizardStyle=modern
 
 [Languages]
@@ -34,8 +34,8 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\ProjectCal"; Filename: "{app}\ProjectCal.Launcher.exe"; WorkingDir: "{app}"; IconFilename: "{app}\ProjectCal.ico"
-Name: "{autodesktop}\ProjectCal"; Filename: "{app}\ProjectCal.Launcher.exe"; WorkingDir: "{app}"; IconFilename: "{app}\ProjectCal.ico"; Tasks: desktopicon
+Name: "{group}\NotesMuchachos"; Filename: "{app}\ProjectCal.Launcher.exe"; WorkingDir: "{app}"; IconFilename: "{app}\NotesMuchachos.ico"
+Name: "{autodesktop}\NotesMuchachos"; Filename: "{app}\ProjectCal.Launcher.exe"; WorkingDir: "{app}"; IconFilename: "{app}\NotesMuchachos.ico"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\ProjectCal.Launcher.exe"; Description: "Launch ProjectCal"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\ProjectCal.Launcher.exe"; Description: "Launch NotesMuchachos"; Flags: nowait postinstall skipifsilent

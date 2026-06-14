@@ -38,7 +38,7 @@ New-Item -ItemType Directory -Force -Path $inputPath,$outputPath | Out-Null
 
 $iconSource = Join-Path $repo "src/ProjectCal.Client/Assets/AppIcon.ico"
 if (Test-Path $iconSource) {
-    Copy-Item $iconSource (Join-Path $inputPath "ProjectCal.ico") -Force
+    Copy-Item $iconSource (Join-Path $inputPath "NotesMuchachos.ico") -Force
 }
 
 Invoke-Checked dotnet @(
@@ -95,7 +95,7 @@ if (-not $iscc) {
 
 if ($SkipInstaller -or -not $iscc) {
     Write-Host "Installer input prepared at: $inputPath"
-    Write-Host "Install Inno Setup 6 and run this script again to produce ProjectCalSetup.exe."
+    Write-Host "Install Inno Setup 6 and run this script again to produce NotesMuchachosSetup.exe."
     exit 0
 }
 
@@ -106,4 +106,4 @@ Invoke-Checked $compiler @(
     "/DOutputDir=$outputPath"
 )
 
-Write-Host "Installer created at: $(Join-Path $outputPath 'ProjectCalSetup.exe')"
+Write-Host "Installer created at: $(Join-Path $outputPath 'NotesMuchachosSetup.exe')"

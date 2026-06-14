@@ -1,6 +1,6 @@
-# ProjectCal EXE installer
+# NotesMuchachos EXE installer
 
-This branch builds a traditional Windows `ProjectCalSetup.exe` installer.
+This branch builds a traditional Windows `NotesMuchachosSetup.exe` installer.
 
 ## Build
 
@@ -19,7 +19,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build\Build-ExeInstaller.p
 The installer will be created at:
 
 ```text
-artifacts\installer\output\ProjectCalSetup.exe
+artifacts\installer\output\NotesMuchachosSetup.exe
 ```
 
 If Inno Setup is not installed, the script still prepares the installable app files at:

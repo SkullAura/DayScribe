@@ -1,4 +1,4 @@
-name: ProjectCal CI
+name: NotesMuchachos CI
 
 on:
   push:

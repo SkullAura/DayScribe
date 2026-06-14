@@ -2352,7 +2352,7 @@ public sealed partial class MainPage : Page
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, UpdateCommitUrl);
-            request.Headers.UserAgent.Add(new ProductInfoHeaderValue("ProjectCal", "1.0"));
+            request.Headers.UserAgent.Add(new ProductInfoHeaderValue("NotesMuchachos", "1.0"));
             using var response = await UpdateHttpClient.SendAsync(request);
             response.EnsureSuccessStatusCode();
 
@@ -3308,7 +3308,7 @@ public sealed partial class MainPage : Page
         }
         catch (UnauthorizedAccessException)
         {
-            StatusBox.Text = "Microphone access is blocked. Enable microphone permission for ProjectCal in Windows Settings.";
+            StatusBox.Text = "Microphone access is blocked. Enable microphone permission for NotesMuchachos in Windows Settings.";
         }
         catch (Exception ex)
         {
