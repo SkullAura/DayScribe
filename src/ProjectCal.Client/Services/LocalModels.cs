@@ -33,6 +33,18 @@ public sealed class LocalAttachment
     public bool IsUploaded { get; set; }
 }
 
+public sealed class LocalTranscript
+{
+    public Guid Id { get; set; }
+    public Guid NoteId { get; set; }
+    public Guid AttachmentId { get; set; }
+    public string Language { get; set; } = "auto";
+    public string? Text { get; set; }
+    public TranscriptStatus Status { get; set; }
+    public string? ErrorMessage { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
 public sealed class LocalAttachmentSummary
 {
     public int PhotoCount { get; set; }

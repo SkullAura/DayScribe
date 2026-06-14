@@ -111,6 +111,7 @@ public static class DatabaseInitializer
             CREATE INDEX IF NOT EXISTS "IX_Attachments_UserId_NoteId" ON "Attachments" ("UserId", "NoteId");
             CREATE INDEX IF NOT EXISTS "IX_Transcripts_UserId_Status" ON "Transcripts" ("UserId", "Status");
             CREATE INDEX IF NOT EXISTS "IX_Transcripts_UserId_UpdatedAt" ON "Transcripts" ("UserId", "UpdatedAt");
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_Transcripts_AttachmentId" ON "Transcripts" ("AttachmentId");
             """;
 
         if (connection.State != System.Data.ConnectionState.Open)

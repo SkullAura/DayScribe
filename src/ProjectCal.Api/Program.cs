@@ -230,7 +230,7 @@ notes.MapGet("/", async (DateOnly? date, string? search, AppDbContext db, HttpCo
     var query = db.Notes
         .AsNoTracking()
         .Include(x => x.Attachments)
-        .Include(x => x.Transcript)
+        .Include(x => x.Transcripts)
         .Where(x => x.UserId == userId && x.DeletedAt == null);
 
     if (date is not null)
@@ -240,7 +240,7 @@ notes.MapGet("/", async (DateOnly? date, string? search, AppDbContext db, HttpCo
 
     if (!string.IsNullOrWhiteSpace(search))
     {
-        query = query.Where(x => x.Title.Contains(search) || x.Body.Contains(search) || (x.Transcript != null && x.Transcript.Text != null && x.Transcript.Text.Contains(search)));
+        query = query.Where(x => x.Title.Contains(search) || x.Body.Contains(search) || x.Transcripts.Any(t => t.Text != null && t.Text.Contains(search)));
     }
 
     var result = await query.OrderBy(x => x.Date).ThenBy(x => x.StartTime).ToArrayAsync(ct);
@@ -274,7 +274,7 @@ notes.MapPost("/", async (UpsertNoteRequest request, AppDbContext db, HttpContex
 notes.MapPut("/{id:guid}", async (Guid id, UpsertNoteRequest request, AppDbContext db, HttpContext http, CancellationToken ct) =>
 {
     var userId = http.User.GetUserId();
-    var note = await db.Notes.Include(x => x.Attachments).Include(x => x.Transcript).FirstOrDefaultAsync(x => x.Id == id && x.UserId == userId, ct);
+    var note = await db.Notes.Include(x => x.Attachments).Include(x => x.Transcripts).FirstOrDefaultAsync(x => x.Id == id && x.UserId == userId, ct);
     if (note is null)
     {
         return Results.NotFound();
@@ -309,7 +309,7 @@ notes.MapDelete("/{id:guid}", async (Guid id, AppDbContext db, HttpContext http,
     return Results.NoContent();
 });
 
-notes.MapPost("/{noteId:guid}/attachments", async (Guid noteId, IFormFile file, AttachmentType type, string? language, AppDbContext db, IFileStorage storage, IServerTranscriptionService transcription, HttpContext http, CancellationToken ct) =>
+notes.MapPost("/{noteId:guid}/attachments", async (Guid noteId, IFormFile file, AttachmentType type, string? language, Guid? attachmentId, AppDbContext db, IFileStorage storage, IServerTranscriptionService transcription, HttpContext http, CancellationToken ct) =>
 {
     var userId = http.User.GetUserId();
     var note = await db.Notes.FirstOrDefaultAsync(x => x.Id == noteId && x.UserId == userId && x.DeletedAt == null, ct);
@@ -320,6 +320,7 @@ notes.MapPost("/{noteId:guid}/attachments", async (Guid noteId, IFormFile file, 
 
     var attachment = new AttachmentEntity
     {
+        Id = attachmentId ?? Guid.NewGuid(),
         UserId = userId,
         NoteId = noteId,
         Type = type,
@@ -333,7 +334,7 @@ notes.MapPost("/{noteId:guid}/attachments", async (Guid noteId, IFormFile file, 
 
     if (type == AttachmentType.Audio)
     {
-        var existingTranscript = await db.Transcripts.FirstOrDefaultAsync(x => x.NoteId == noteId && x.UserId == userId, ct);
+        var existingTranscript = await db.Transcripts.FirstOrDefaultAsync(x => x.AttachmentId == attachment.Id && x.UserId == userId, ct);
         var transcriptLanguage = string.IsNullOrWhiteSpace(language) ? "auto" : language;
         var now = DateTimeOffset.UtcNow;
         if (existingTranscript is null)
@@ -484,7 +485,7 @@ app.MapPost("/api/sync", async (SyncRequest request, AppDbContext db, HttpContex
     var changedNoteEntities = await db.Notes
         .AsNoTracking()
         .Include(x => x.Attachments)
-        .Include(x => x.Transcript)
+        .Include(x => x.Transcripts)
         .Where(x => x.UserId == userId)
         .ToArrayAsync(ct);
     changedNoteEntities = changedNoteEntities.Where(x => x.UpdatedAt > since).OrderBy(x => x.UpdatedAt).ToArray();
@@ -587,7 +588,7 @@ internal static class TranscriptSync
             return null;
         }
 
-        var transcript = await db.Transcripts.FirstOrDefaultAsync(x => x.NoteId == note.Id && x.UserId == userId, cancellationToken);
+        var transcript = await db.Transcripts.FirstOrDefaultAsync(x => x.AttachmentId == attachment.Id && x.UserId == userId, cancellationToken);
         if (transcript is null)
         {
             transcript = new TranscriptEntity

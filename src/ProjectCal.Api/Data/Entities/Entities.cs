@@ -44,7 +44,7 @@ public sealed class NoteEntity
     public long SyncVersion { get; set; }
     public UserEntity? User { get; set; }
     public List<AttachmentEntity> Attachments { get; set; } = [];
-    public TranscriptEntity? Transcript { get; set; }
+    public List<TranscriptEntity> Transcripts { get; set; } = [];
 }
 
 public sealed class AttachmentEntity

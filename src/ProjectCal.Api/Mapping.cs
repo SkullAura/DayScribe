@@ -19,7 +19,7 @@ public static class Mapping
             note.DeletedAt,
             note.SyncVersion,
             note.Attachments.OrderBy(x => x.CreatedAt).Select(x => x.ToDto()).ToArray(),
-            note.Transcript?.ToDto());
+            note.Transcripts.OrderByDescending(x => x.UpdatedAt).FirstOrDefault()?.ToDto());
     }
 
     public static AttachmentDto ToDto(this AttachmentEntity attachment)

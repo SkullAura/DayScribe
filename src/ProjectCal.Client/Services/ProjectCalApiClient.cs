@@ -127,7 +127,7 @@ public sealed class ProjectCalApiClient
         file.Headers.ContentType = new MediaTypeHeaderValue(attachment.MimeType);
         form.Add(file, "file", attachment.FileName);
 
-        var url = $"/api/notes/{attachment.NoteId}/attachments?type={attachment.Type}&language={Uri.EscapeDataString(language)}";
+        var url = $"/api/notes/{attachment.NoteId}/attachments?type={attachment.Type}&language={Uri.EscapeDataString(language)}&attachmentId={attachment.Id}";
         var response = await _http.PostAsync(url, form);
         await EnsureSuccessAsync(response);
     }

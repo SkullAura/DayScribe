@@ -51,6 +51,18 @@ public sealed class LocalNoteStore
                 is_uploaded INTEGER NOT NULL
             );
             """);
+        await ExecuteAsync(connection, """
+            CREATE TABLE IF NOT EXISTS transcripts (
+                id TEXT PRIMARY KEY,
+                note_id TEXT NOT NULL,
+                attachment_id TEXT NOT NULL UNIQUE,
+                language TEXT NOT NULL,
+                text TEXT NULL,
+                status INTEGER NOT NULL,
+                error_message TEXT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """);
     }
 
     public async Task<IReadOnlyList<LocalNote>> GetNotesAsync(DateOnly date, string? search)
@@ -250,6 +262,33 @@ public sealed class LocalNoteStore
     {
         await using var connection = Open();
         await connection.OpenAsync();
+
+        var upsert = connection.CreateCommand();
+        upsert.CommandText = """
+            INSERT INTO transcripts (id, note_id, attachment_id, language, text, status, error_message, updated_at)
+            VALUES ($id, $note_id, $attachment_id, $language, $text, $status, $error, $updated)
+            ON CONFLICT(attachment_id) DO UPDATE SET
+                id = excluded.id,
+                note_id = excluded.note_id,
+                language = excluded.language,
+                text = excluded.text,
+                status = excluded.status,
+                error_message = excluded.error_message,
+                updated_at = excluded.updated_at
+            """;
+        BindTranscript(upsert, new LocalTranscript
+        {
+            Id = transcript.Id,
+            NoteId = transcript.NoteId,
+            AttachmentId = transcript.AttachmentId,
+            Language = transcript.Language,
+            Text = transcript.Text,
+            Status = transcript.Status,
+            ErrorMessage = transcript.ErrorMessage,
+            UpdatedAt = transcript.UpdatedAt
+        });
+        await upsert.ExecuteNonQueryAsync();
+
         var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE notes
@@ -265,10 +304,35 @@ public sealed class LocalNoteStore
         await command.ExecuteNonQueryAsync();
     }
 
-    public async Task UpdateTranscriptAsync(Guid noteId, string? text, TranscriptStatus status)
+    public async Task UpdateTranscriptAsync(Guid noteId, Guid? attachmentId, string? text, TranscriptStatus status)
     {
         await using var connection = Open();
         await connection.OpenAsync();
+        if (attachmentId is not null)
+        {
+            var transcript = new LocalTranscript
+            {
+                Id = Guid.NewGuid(),
+                NoteId = noteId,
+                AttachmentId = attachmentId.Value,
+                Language = "auto",
+                Text = text,
+                Status = status,
+                UpdatedAt = DateTimeOffset.UtcNow
+            };
+            var upsert = connection.CreateCommand();
+            upsert.CommandText = """
+                INSERT INTO transcripts (id, note_id, attachment_id, language, text, status, error_message, updated_at)
+                VALUES ($id, $note_id, $attachment_id, $language, $text, $status, $error, $updated)
+                ON CONFLICT(attachment_id) DO UPDATE SET
+                    text = excluded.text,
+                    status = excluded.status,
+                    updated_at = excluded.updated_at
+                """;
+            BindTranscript(upsert, transcript);
+            await upsert.ExecuteNonQueryAsync();
+        }
+
         var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE notes
@@ -284,6 +348,29 @@ public sealed class LocalNoteStore
         command.Parameters.AddWithValue("$status", (int)status);
         command.Parameters.AddWithValue("$updated", DateTimeOffset.UtcNow.ToString("O"));
         await command.ExecuteNonQueryAsync();
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, LocalTranscript>> GetTranscriptsForNoteAsync(Guid noteId)
+    {
+        await using var connection = Open();
+        await connection.OpenAsync();
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, note_id, attachment_id, language, text, status, error_message, updated_at
+            FROM transcripts
+            WHERE note_id = $note_id
+            """;
+        command.Parameters.AddWithValue("$note_id", noteId.ToString());
+
+        var transcripts = new Dictionary<Guid, LocalTranscript>();
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var transcript = ReadTranscript(reader);
+            transcripts[transcript.AttachmentId] = transcript;
+        }
+
+        return transcripts;
     }
 
     public async Task<LocalAttachment> AddAttachmentAsync(Guid noteId, StorageFile file, AttachmentType type)
@@ -605,6 +692,21 @@ public sealed class LocalNoteStore
         };
     }
 
+    private static LocalTranscript ReadTranscript(SqliteDataReader reader)
+    {
+        return new LocalTranscript
+        {
+            Id = Guid.Parse(reader.GetString(0)),
+            NoteId = Guid.Parse(reader.GetString(1)),
+            AttachmentId = Guid.Parse(reader.GetString(2)),
+            Language = reader.GetString(3),
+            Text = reader.IsDBNull(4) ? null : reader.GetString(4),
+            Status = (TranscriptStatus)reader.GetInt32(5),
+            ErrorMessage = reader.IsDBNull(6) ? null : reader.GetString(6),
+            UpdatedAt = DateTimeOffset.Parse(reader.GetString(7))
+        };
+    }
+
     private static void BindNote(SqliteCommand command, LocalNote note)
     {
         command.Parameters.AddWithValue("$id", note.Id.ToString());
@@ -619,5 +721,17 @@ public sealed class LocalNoteStore
         command.Parameters.AddWithValue("$version", note.SyncVersion);
         command.Parameters.AddWithValue("$text", note.TranscriptText ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$status", (int)note.TranscriptStatus);
+    }
+
+    private static void BindTranscript(SqliteCommand command, LocalTranscript transcript)
+    {
+        command.Parameters.AddWithValue("$id", transcript.Id.ToString());
+        command.Parameters.AddWithValue("$note_id", transcript.NoteId.ToString());
+        command.Parameters.AddWithValue("$attachment_id", transcript.AttachmentId.ToString());
+        command.Parameters.AddWithValue("$language", transcript.Language);
+        command.Parameters.AddWithValue("$text", transcript.Text ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$status", (int)transcript.Status);
+        command.Parameters.AddWithValue("$error", transcript.ErrorMessage ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$updated", transcript.UpdatedAt.ToString("O"));
     }
 }

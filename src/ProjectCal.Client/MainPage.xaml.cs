@@ -70,6 +70,7 @@ public sealed partial class MainPage : Page
     private sealed record TimelineLayout(LocalNote Note, LocalAttachmentSummary? AttachmentSummary, int Lane, int LaneCount);
     private sealed record StoredRichBody(string Format, string Plain, string Rtf);
     private sealed record UpdateCheckResult(bool Success, bool UpdateAvailable, string Message, string? LocalSha, string? RemoteSha);
+    private sealed record AudioTranscriptSelection(LocalAttachment Attachment, LocalTranscript? Transcript);
 
     public MainPage()
     {
@@ -191,7 +192,7 @@ public sealed partial class MainPage : Page
             TitleBox.Text = "";
             SetBodyContent("");
             ClearMediaState();
-            SetTranscriptState(null);
+            SetTranscriptState((LocalNote?)null);
             StatusBox.Text = "Deleted locally. Sync will remove it from the server.";
             SyncStateText.Text = "Local changes";
             await ReloadAsync();
@@ -267,8 +268,8 @@ public sealed partial class MainPage : Page
             _recordingFile = null;
             if (recordedFile is not null)
             {
-                await _store.AddAttachmentAsync(_selectedNoteId!.Value, recordedFile, AttachmentType.Audio);
-                await _store.UpdateTranscriptAsync(_selectedNoteId.Value, null, TranscriptStatus.Pending);
+                var attachment = await _store.AddAttachmentAsync(_selectedNoteId!.Value, recordedFile, AttachmentType.Audio);
+                await _store.UpdateTranscriptAsync(_selectedNoteId.Value, attachment.Id, null, TranscriptStatus.Pending);
                 await LoadSelectedMediaAsync(_selectedNoteId.Value);
             }
 
@@ -522,6 +523,11 @@ public sealed partial class MainPage : Page
         }
 
         await RefreshSelectedNoteDetailsAsync();
+        if (_selectedNoteId is Guid selectedNoteId)
+        {
+            await LoadSelectedMediaAsync(selectedNoteId);
+        }
+
         await ReloadAsync();
     }
 
@@ -1533,7 +1539,7 @@ public sealed partial class MainPage : Page
         StartTimePicker.Time = startTime.ToTimeSpan();
         EndTimePicker.Time = startTime.AddMinutes(GetDefaultDurationMinutes()).ToTimeSpan();
         ClearMediaState();
-        SetTranscriptState(null);
+        SetTranscriptState((LocalNote?)null);
         StatusBox.Text = "Selection cleared.";
     }
 
@@ -1546,7 +1552,7 @@ public sealed partial class MainPage : Page
         StartTimePicker.Time = startTime.ToTimeSpan();
         EndTimePicker.Time = startTime.AddMinutes(GetDefaultDurationMinutes()).ToTimeSpan();
         ClearMediaState();
-        SetTranscriptState(null);
+        SetTranscriptState((LocalNote?)null);
         StatusBox.Text = $"New separate note at {startTime:HH:mm}.";
     }
 
@@ -2130,22 +2136,7 @@ public sealed partial class MainPage : Page
                 return;
             }
 
-            if (!File.Exists(_selectedAudioAttachment.LocalPath))
-            {
-                StatusBox.Text = "Audio file is missing from local storage.";
-                await LoadSelectedMediaAsync(_selectedAudioAttachment.NoteId);
-                return;
-            }
-
-            var file = await StorageFile.GetFileFromPathAsync(_selectedAudioAttachment.LocalPath);
-            _audioPlayer ??= CreateAudioPlayer();
-            AudioPlayerElement.SetMediaPlayer(_audioPlayer);
-            AudioPlayerElement.Visibility = Visibility.Visible;
-            _audioPlayer.Source = MediaSource.CreateFromStorageFile(file);
-            _audioPlayer.Play();
-            AudioStatusText.Text = T("playingAudio");
-            SetMediaAction(T("playingAudio"), false);
-            StatusBox.Text = "Playing local audio. Use the player controls under the buttons.";
+            await PlayAudioAttachmentAsync(_selectedAudioAttachment);
         });
     }
 
@@ -2167,6 +2158,7 @@ public sealed partial class MainPage : Page
     {
         StopAudioPlayback();
         var attachments = await _store.GetAttachmentsForNoteAsync(noteId);
+        var transcripts = await _store.GetTranscriptsForNoteAsync(noteId);
         var audioAttachments = attachments
             .Where(x => x.Type == AttachmentType.Audio && File.Exists(x.LocalPath))
             .ToArray();
@@ -2177,12 +2169,147 @@ public sealed partial class MainPage : Page
         StopAudioButton.IsEnabled = hasAudio;
         AudioPlayerElement.Visibility = Visibility.Collapsed;
         AudioStatusText.Text = hasAudio
-            ? $"{audioAttachments.Length} audio attached. Ready to play latest."
+            ? $"{audioAttachments.Length} audio attached. Select a recording below."
             : T("noAudioAttached");
-        SetMediaAction(hasAudio ? "Audio ready. Press Play audio." : "Record audio or attach photos to this note.", false);
+        SetMediaAction(hasAudio ? "Audio ready. Choose a recording to play." : "Record audio or attach photos to this note.", false);
 
+        RenderAudioList(audioAttachments, transcripts);
         RenderPhotos(attachments);
         UpdateMediaIndicator(attachments);
+    }
+
+    private void RenderAudioList(
+        IReadOnlyList<LocalAttachment> audioAttachments,
+        IReadOnlyDictionary<Guid, LocalTranscript> transcripts)
+    {
+        AudioListPanel.Children.Clear();
+        if (audioAttachments.Count == 0)
+        {
+            return;
+        }
+
+        for (var index = 0; index < audioAttachments.Count; index++)
+        {
+            var attachment = audioAttachments[index];
+            transcripts.TryGetValue(attachment.Id, out var transcript);
+            var title = $"Audio {audioAttachments.Count - index}";
+            var status = transcript?.Status switch
+            {
+                TranscriptStatus.Pending => T("queued"),
+                TranscriptStatus.Processing => T("processing"),
+                TranscriptStatus.Done => T("ready"),
+                TranscriptStatus.Failed => T("failed"),
+                _ => T("noTranscriptYet")
+            };
+            var preview = !string.IsNullOrWhiteSpace(transcript?.Text)
+                ? transcript.Text
+                : transcript?.ErrorMessage ?? "Transcript will appear after sync.";
+
+            var playButton = new Button
+            {
+                MinWidth = 84,
+                Tag = attachment,
+                Content = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 6,
+                    Children =
+                    {
+                        new SymbolIcon(Symbol.Play),
+                        new TextBlock { Text = "Play" }
+                    }
+                }
+            };
+            playButton.Click += AudioItemPlay_Click;
+
+            var row = new Grid
+            {
+                ColumnSpacing = 8,
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                    new ColumnDefinition { Width = GridLength.Auto }
+                }
+            };
+
+            var openButton = new Button
+            {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Tag = new AudioTranscriptSelection(attachment, transcript),
+                Content = new StackPanel
+                {
+                    Spacing = 2,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = $"{title} · {attachment.FileName}",
+                            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                            TextTrimming = TextTrimming.CharacterEllipsis
+                        },
+                        new TextBlock
+                        {
+                            Text = $"{status} · {preview}",
+                            Foreground = (Brush)Resources["MutedTextBrush"],
+                            FontSize = 12,
+                            MaxLines = 2,
+                            TextTrimming = TextTrimming.CharacterEllipsis,
+                            TextWrapping = TextWrapping.Wrap
+                        }
+                    }
+                }
+            };
+            openButton.Click += AudioItem_Click;
+            row.Children.Add(openButton);
+            Grid.SetColumn(playButton, 1);
+            row.Children.Add(playButton);
+            AudioListPanel.Children.Add(row);
+        }
+    }
+
+    private async void AudioItemPlay_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: LocalAttachment attachment })
+        {
+            await RunUiAsync(async () => await PlayAudioAttachmentAsync(attachment));
+        }
+    }
+
+    private void AudioItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: AudioTranscriptSelection selection })
+        {
+            return;
+        }
+
+        _selectedAudioAttachment = selection.Attachment;
+        PlayAudioButton.IsEnabled = true;
+        StopAudioButton.IsEnabled = true;
+        AudioStatusText.Text = $"Selected {selection.Attachment.FileName}";
+        SetTranscriptState(selection.Transcript);
+        SetMediaAction("Selected audio. Press Play to listen.", false);
+    }
+
+    private async Task PlayAudioAttachmentAsync(LocalAttachment attachment)
+    {
+        _selectedAudioAttachment = attachment;
+        if (!File.Exists(attachment.LocalPath))
+        {
+            StatusBox.Text = "Audio file is missing from local storage.";
+            await LoadSelectedMediaAsync(attachment.NoteId);
+            return;
+        }
+
+        var file = await StorageFile.GetFileFromPathAsync(attachment.LocalPath);
+        _audioPlayer ??= CreateAudioPlayer();
+        AudioPlayerElement.SetMediaPlayer(_audioPlayer);
+        AudioPlayerElement.Visibility = Visibility.Visible;
+        _audioPlayer.Source = MediaSource.CreateFromStorageFile(file);
+        _audioPlayer.Play();
+        AudioStatusText.Text = $"{T("playingAudio")}: {attachment.FileName}";
+        SetMediaAction(T("playingAudio"), false);
+        StatusBox.Text = "Playing selected audio.";
     }
 
     private void ClearMediaState()
@@ -2192,6 +2319,7 @@ public sealed partial class MainPage : Page
         PlayAudioButton.IsEnabled = false;
         StopAudioButton.IsEnabled = false;
         AudioPlayerElement.Visibility = Visibility.Collapsed;
+        AudioListPanel.Children.Clear();
         AudioStatusText.Text = T("noAudioAttached");
         PhotosPanel.Children.Clear();
         PhotoStatusText.Text = T("noPhotosYet");
@@ -2203,14 +2331,14 @@ public sealed partial class MainPage : Page
     {
         if (_selectedNoteId is null)
         {
-            SetTranscriptState(null);
+            SetTranscriptState((LocalNote?)null);
             return;
         }
 
         var note = await _store.GetNoteByIdAsync(_selectedNoteId.Value);
         if (note is null)
         {
-            SetTranscriptState(null);
+            SetTranscriptState((LocalNote?)null);
             return;
         }
 
@@ -2239,6 +2367,35 @@ public sealed partial class MainPage : Page
         };
         TranscriptBox.Text = note.TranscriptText ?? "";
         TranscriptStateText.Text = note.TranscriptStatus switch
+        {
+            TranscriptStatus.Pending => T("queued"),
+            TranscriptStatus.Processing => T("processing"),
+            TranscriptStatus.Done => T("ready"),
+            TranscriptStatus.Failed => T("failed"),
+            _ => T("noAudio")
+        };
+    }
+
+    private void SetTranscriptState(LocalTranscript? transcript)
+    {
+        if (transcript is null)
+        {
+            TranscriptStatusText.Text = T("noTranscriptYet");
+            TranscriptBox.Text = "";
+            TranscriptStateText.Text = T("noAudio");
+            return;
+        }
+
+        TranscriptStatusText.Text = transcript.Status switch
+        {
+            TranscriptStatus.Pending => T("transcriptQueued"),
+            TranscriptStatus.Processing => T("transcriptionInProgress"),
+            TranscriptStatus.Done => T("transcriptReady"),
+            TranscriptStatus.Failed => T("transcriptionFailed"),
+            _ => T("noTranscriptYet")
+        };
+        TranscriptBox.Text = transcript.Text ?? transcript.ErrorMessage ?? "";
+        TranscriptStateText.Text = transcript.Status switch
         {
             TranscriptStatus.Pending => T("queued"),
             TranscriptStatus.Processing => T("processing"),
@@ -2635,7 +2792,7 @@ public sealed partial class MainPage : Page
 
         if (_selectedNoteId is null)
         {
-            SetTranscriptState(null);
+            SetTranscriptState((LocalNote?)null);
         }
     }
 

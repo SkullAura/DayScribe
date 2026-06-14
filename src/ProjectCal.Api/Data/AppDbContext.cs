@@ -46,8 +46,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         {
             entity.HasIndex(x => new { x.UserId, x.Status });
             entity.HasIndex(x => new { x.UserId, x.UpdatedAt });
+            entity.HasIndex(x => x.AttachmentId).IsUnique();
             entity.Property(x => x.Language).HasMaxLength(16);
-            entity.HasOne(x => x.Note).WithOne(x => x.Transcript).HasForeignKey<TranscriptEntity>(x => x.NoteId);
+            entity.HasOne(x => x.Note).WithMany(x => x.Transcripts).HasForeignKey(x => x.NoteId);
             entity.HasOne(x => x.Attachment).WithOne().HasForeignKey<TranscriptEntity>(x => x.AttachmentId);
         });
     }

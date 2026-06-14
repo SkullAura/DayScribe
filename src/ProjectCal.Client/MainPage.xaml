@@ -801,6 +801,10 @@
                                                 AreTransportControlsEnabled="True"
                                                 AutoPlay="False"
                                                 Visibility="Collapsed" />
+
+                                            <StackPanel
+                                                x:Name="AudioListPanel"
+                                                Spacing="6" />
                                         </StackPanel>
                                     </Border>
 
