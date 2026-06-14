@@ -1,4 +1,5 @@
 using System.Text;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -58,6 +59,28 @@ if (app.Configuration.GetValue("Database:EnsureCreated", true))
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await DatabaseInitializer.EnsureProjectCalSchemaAsync(db, app.Configuration);
 }
+
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        var feature = context.Features.Get<IExceptionHandlerFeature>();
+        var logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("UnhandledException");
+        if (feature?.Error is not null)
+        {
+            logger.LogError(feature.Error, "Unhandled API exception.");
+        }
+
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        context.Response.ContentType = "application/json";
+        await Results.Json(new
+        {
+            error = "Internal server error.",
+            exception = feature?.Error.GetType().Name,
+            detail = feature?.Error.Message
+        }).ExecuteAsync(context);
+    });
+});
 
 app.UseHttpsRedirection();
 app.UseRateLimiter();
