@@ -67,7 +67,7 @@ public sealed class ProjectCalApiClient
 
     public async Task<bool> TryRestoreSessionAsync()
     {
-        var savedRefreshToken = ApplicationData.Current.LocalSettings.Values["refresh_token"] as string;
+        var savedRefreshToken = ClientAppData.GetString("refresh_token");
         if (string.IsNullOrWhiteSpace(savedRefreshToken))
         {
             return false;
@@ -95,7 +95,7 @@ public sealed class ProjectCalApiClient
         _refreshToken = null;
         CurrentUser = null;
         _http.DefaultRequestHeaders.Authorization = null;
-        ApplicationData.Current.LocalSettings.Values.Remove("refresh_token");
+        ClientAppData.Remove("refresh_token");
     }
 
     public async Task<string?> ForgotPasswordAsync(string email)
@@ -149,7 +149,7 @@ public sealed class ProjectCalApiClient
 
     private static void SaveRefreshToken(string refreshToken)
     {
-        ApplicationData.Current.LocalSettings.Values["refresh_token"] = refreshToken;
+        ClientAppData.Set("refresh_token", refreshToken);
     }
 
     private static async Task EnsureSuccessAsync(HttpResponseMessage response)

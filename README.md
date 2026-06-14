@@ -6,7 +6,7 @@ Native Windows notes app with registration, voice/audio transcription, photo att
 
 - `src/ProjectCal.Client` - WinUI 3 Windows client.
 - `src/ProjectCal.Api` - ASP.NET Core API for auth, notes, media upload, sync, and diagnostics.
-- `src/ProjectCal.Worker` - background transcription worker.
+- `src/ProjectCal.Worker` - optional background transcription worker for local/VPS deployments.
 - `src/ProjectCal.Shared` - shared DTOs and enums.
 - `tests/ProjectCal.Tests` - API integration tests.
 
@@ -24,7 +24,6 @@ For backend-only development with SQLite:
 
 ```powershell
 dotnet run --project src\ProjectCal.Api\ProjectCal.Api.csproj --environment Development
-dotnet run --project src\ProjectCal.Worker\ProjectCal.Worker.csproj --environment Development
 ```
 
 For PostgreSQL and containerized API/worker:
@@ -33,21 +32,19 @@ For PostgreSQL and containerized API/worker:
 docker compose up --build
 ```
 
-## OpenAI Transcription
+## Groq Transcription
 
-Real audio transcription is handled by `src/ProjectCal.Worker`.
+In the Render Free setup, real audio transcription is handled directly by `src/ProjectCal.Api` after an audio upload. The Windows app never stores or asks the user for the Groq key.
 
-Set an OpenAI API key before starting the worker:
+Set a Groq API key on the server before starting the API:
 
 ```powershell
-$env:OPENAI_API_KEY = "sk-your-openai-api-key"
-$env:OpenAI__TranscriptionModel = "gpt-4o-mini-transcribe"
-dotnet run --project src\ProjectCal.Worker\ProjectCal.Worker.csproj --environment Development
+$env:GROQ_API_KEY = "gsk-your-groq-api-key"
+$env:Groq__TranscriptionModel = "whisper-large-v3-turbo"
+dotnet run --project src\ProjectCal.Api\ProjectCal.Api.csproj --environment Development
 ```
 
-The worker sends uploaded audio to `https://api.openai.com/v1/audio/transcriptions`.
-The default model is `gpt-4o-mini-transcribe`; use `gpt-4o-transcribe` if you want higher accuracy.
-Without `OPENAI_API_KEY`, the worker writes the development stub text.
+The API sends uploaded audio to Groq's OpenAI-compatible transcription endpoint. Without `GROQ_API_KEY`, uploaded audio is saved but transcription is marked failed.
 
 ## Supabase Postgres
 
@@ -63,15 +60,14 @@ $env:Database__Provider = "Postgres"
 $env:Jwt__SigningKey = "replace-with-a-long-random-signing-key-at-least-32-bytes"
 
 dotnet run --project src\ProjectCal.Api\ProjectCal.Api.csproj --urls http://localhost:5009
-dotnet run --project src\ProjectCal.Worker\ProjectCal.Worker.csproj
 ```
 
 You can also use `DATABASE_URL=postgresql://...`; the app converts it to an Npgsql connection string and enables SSL.
-The API still stores uploaded media on the local filesystem, so the API and worker must see the same media path when deployed separately.
+The API still stores uploaded media on the server filesystem. On Render Free that filesystem is temporary, so the next production step is Supabase Storage or S3-compatible object storage for durable photo/audio files.
 
 For the full cloud sync checklist, see [`docs/CLOUD_SETUP.md`](docs/CLOUD_SETUP.md).
 For Oracle Cloud Always Free deployment, see [`docs/ORACLE_ALWAYS_FREE.md`](docs/ORACLE_ALWAYS_FREE.md).
-In the Windows client, `Cloud API URL` must point to the deployed `ProjectCal.Api` backend, not directly to Supabase.
+The Windows client must point to the deployed `ProjectCal.Api` backend, not directly to Supabase. For a private test build, set the hidden Windows environment variable `PROJECTCAL_API_URL` to the Render API URL before launching ProjectCal.
 
 ## GitHub
 
@@ -110,14 +106,14 @@ GitHub Actions also includes `ProjectCal Installer`, which builds the setup exec
 - Email/password registration, email confirmation, login, refresh tokens, and password reset endpoints are implemented.
 - Notes are isolated by user id and can be created, updated, deleted, searched, and synced.
 - The WinUI client stores notes and attachments locally in SQLite/ApplicationData and syncs when online.
-- Audio uploads create pending transcript rows; the worker processes them with OpenAI when `OPENAI_API_KEY` is set.
-- Media storage is implemented as local server filesystem storage; `docker-compose.yml` includes MinIO as the next step for S3-compatible object storage.
+- Audio uploads create transcript rows; the API processes them with Groq when `GROQ_API_KEY` is set.
+- Media storage is implemented as local server filesystem storage; Supabase Storage or S3-compatible object storage is the next production step.
 
 ## Production Checklist
 
 - Replace dev JWT signing key.
 - Add a real email sender for confirmation and password reset.
 - Configure object storage instead of local filesystem media.
-- Set `OPENAI_API_KEY` for real Speech-to-Text.
+- Set `GROQ_API_KEY` for real Speech-to-Text.
 - Add migrations instead of `EnsureCreated`.
 - Harden admin diagnostics behind an admin policy.

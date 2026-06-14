@@ -15,15 +15,4 @@
     <ProjectReference Include="..\ProjectCal.Shared\ProjectCal.Shared.csproj" />
     <ProjectReference Include="..\ProjectCal.Api\ProjectCal.Api.csproj" />
   </ItemGroup>
-
-  <ItemGroup>
-    <Content Include="Tools\whisper\win-x64\**\*">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </Content>
-    <Content Include="Models\whisper\**\*">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </Content>
-  </ItemGroup>
 </Project>

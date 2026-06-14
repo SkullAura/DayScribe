@@ -1,7 +1,9 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.IdentityModel.Tokens;
 using ProjectCal.Api.Data.Entities;
 
@@ -116,6 +118,68 @@ public sealed class LocalFileStorage(IWebHostEnvironment environment, IConfigura
 
         Stream stream = File.OpenRead(fullPath);
         return Task.FromResult<(Stream, string, string)?>((stream, attachment.FileName, attachment.MimeType));
+    }
+}
+
+public interface IServerTranscriptionService
+{
+    Task<string> TranscribeAsync(Stream audio, string fileName, string mimeType, string language, CancellationToken cancellationToken);
+}
+
+public sealed class GroqServerTranscriptionService(IConfiguration configuration) : IServerTranscriptionService
+{
+    private static readonly HttpClient Client = new() { BaseAddress = new Uri("https://api.groq.com") };
+
+    public async Task<string> TranscribeAsync(Stream audio, string fileName, string mimeType, string language, CancellationToken cancellationToken)
+    {
+        var apiKey = configuration["Groq:ApiKey"] ?? Environment.GetEnvironmentVariable("GROQ_API_KEY");
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            throw new InvalidOperationException("Server transcription is not configured. Set GROQ_API_KEY.");
+        }
+
+        using var form = new MultipartFormDataContent();
+        using var file = new StreamContent(audio);
+        file.Headers.ContentType = new MediaTypeHeaderValue(string.IsNullOrWhiteSpace(mimeType) ? GetMimeType(fileName) : mimeType);
+        form.Add(file, "file", fileName);
+        form.Add(new StringContent(configuration["Groq:TranscriptionModel"] ?? "whisper-large-v3-turbo"), "model");
+        form.Add(new StringContent("json"), "response_format");
+
+        if (!string.IsNullOrWhiteSpace(language) && !string.Equals(language, "auto", StringComparison.OrdinalIgnoreCase))
+        {
+            form.Add(new StringContent(language), "language");
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/openai/v1/audio/transcriptions")
+        {
+            Content = form
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey.Trim());
+
+        using var response = await Client.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"Groq transcription failed: {(int)response.StatusCode} {response.ReasonPhrase}. {body}");
+        }
+
+        using var document = JsonDocument.Parse(body);
+        return document.RootElement.TryGetProperty("text", out var text) ? text.GetString()?.Trim() ?? "" : "";
+    }
+
+    private static string GetMimeType(string path)
+    {
+        return Path.GetExtension(path).ToLowerInvariant() switch
+        {
+            ".mp3" => "audio/mpeg",
+            ".mp4" => "audio/mp4",
+            ".m4a" => "audio/mp4",
+            ".wav" => "audio/wav",
+            ".webm" => "audio/webm",
+            ".ogg" => "audio/ogg",
+            ".flac" => "audio/flac",
+            _ => "application/octet-stream"
+        };
     }
 }
 

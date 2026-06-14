@@ -19,6 +19,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 });
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<IFileStorage, LocalFileStorage>();
+builder.Services.AddScoped<IServerTranscriptionService, GroqServerTranscriptionService>();
 builder.Services.AddRateLimiter(options =>
 {
     options.AddFixedWindowLimiter("auth", limiter =>
@@ -241,6 +242,7 @@ notes.MapPost("/", async (UpsertNoteRequest request, AppDbContext db, HttpContex
     };
 
     db.Notes.Add(note);
+    await TranscriptSync.ApplyFromNoteRequestAsync(note, request, db, userId, now, ct);
     await db.SaveChangesAsync(ct);
     return Results.Created($"/api/notes/{note.Id}", note.ToDto());
 });
@@ -262,6 +264,7 @@ notes.MapPut("/{id:guid}", async (Guid id, UpsertNoteRequest request, AppDbConte
     note.UpdatedAt = DateTimeOffset.UtcNow;
     note.SyncVersion = Math.Max(note.SyncVersion, request.SyncVersion) + 1;
     note.DeletedAt = null;
+    await TranscriptSync.ApplyFromNoteRequestAsync(note, request, db, userId, note.UpdatedAt, ct);
     await db.SaveChangesAsync(ct);
     return Results.Ok(note.ToDto());
 });
@@ -282,7 +285,7 @@ notes.MapDelete("/{id:guid}", async (Guid id, AppDbContext db, HttpContext http,
     return Results.NoContent();
 });
 
-notes.MapPost("/{noteId:guid}/attachments", async (Guid noteId, IFormFile file, AttachmentType type, string? language, AppDbContext db, IFileStorage storage, HttpContext http, CancellationToken ct) =>
+notes.MapPost("/{noteId:guid}/attachments", async (Guid noteId, IFormFile file, AttachmentType type, string? language, AppDbContext db, IFileStorage storage, IServerTranscriptionService transcription, HttpContext http, CancellationToken ct) =>
 {
     var userId = http.User.GetUserId();
     var note = await db.Notes.FirstOrDefaultAsync(x => x.Id == noteId && x.UserId == userId && x.DeletedAt == null, ct);
@@ -306,14 +309,57 @@ notes.MapPost("/{noteId:guid}/attachments", async (Guid noteId, IFormFile file, 
 
     if (type == AttachmentType.Audio)
     {
-        db.Transcripts.Add(new TranscriptEntity
+        var existingTranscript = await db.Transcripts.FirstOrDefaultAsync(x => x.NoteId == noteId && x.UserId == userId, ct);
+        var transcriptLanguage = string.IsNullOrWhiteSpace(language) ? "auto" : language;
+        var now = DateTimeOffset.UtcNow;
+        if (existingTranscript is null)
         {
-            UserId = userId,
-            NoteId = noteId,
-            AttachmentId = attachment.Id,
-            Language = string.IsNullOrWhiteSpace(language) ? "auto" : language,
-            Status = TranscriptStatus.Pending
-        });
+            existingTranscript = new TranscriptEntity
+            {
+                UserId = userId,
+                NoteId = noteId,
+                AttachmentId = attachment.Id,
+                Language = transcriptLanguage
+            };
+            db.Transcripts.Add(existingTranscript);
+        }
+
+        existingTranscript.AttachmentId = attachment.Id;
+        existingTranscript.Language = transcriptLanguage;
+        existingTranscript.Text = null;
+        existingTranscript.ErrorMessage = null;
+        existingTranscript.Status = TranscriptStatus.Processing;
+        existingTranscript.UpdatedAt = now;
+
+        var storedFile = await storage.OpenAsync(attachment, ct);
+        if (storedFile is null)
+        {
+            existingTranscript.Status = TranscriptStatus.Failed;
+            existingTranscript.ErrorMessage = "Stored audio file was not found.";
+        }
+        else
+        {
+            await using var stream = storedFile.Value.Stream;
+            try
+            {
+                var text = await transcription.TranscribeAsync(
+                    stream,
+                    storedFile.Value.FileName,
+                    storedFile.Value.MimeType,
+                    transcriptLanguage,
+                    ct);
+                existingTranscript.Text = text;
+                existingTranscript.Status = string.IsNullOrWhiteSpace(text) ? TranscriptStatus.Failed : TranscriptStatus.Done;
+                existingTranscript.ErrorMessage = string.IsNullOrWhiteSpace(text) ? "Groq returned empty text." : null;
+            }
+            catch (Exception ex)
+            {
+                existingTranscript.Status = TranscriptStatus.Failed;
+                existingTranscript.ErrorMessage = ex.Message;
+            }
+        }
+
+        existingTranscript.UpdatedAt = DateTimeOffset.UtcNow;
     }
 
     note.UpdatedAt = DateTimeOffset.UtcNow;
@@ -321,6 +367,25 @@ notes.MapPost("/{noteId:guid}/attachments", async (Guid noteId, IFormFile file, 
     await db.SaveChangesAsync(ct);
     return Results.Created($"/api/attachments/{attachment.Id}", attachment.ToDto());
 }).DisableAntiforgery();
+
+notes.MapPost("/{noteId:guid}/transcript", async (Guid noteId, UpsertTranscriptRequest request, AppDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    var userId = http.User.GetUserId();
+    var note = await db.Notes.FirstOrDefaultAsync(x => x.Id == noteId && x.UserId == userId && x.DeletedAt == null, ct);
+    if (note is null)
+    {
+        return Results.NotFound();
+    }
+
+    var transcript = await TranscriptSync.UpsertAsync(note, request, db, userId, DateTimeOffset.UtcNow, requireAudio: true, ct);
+    if (transcript is null)
+    {
+        return Results.Conflict(new { error = "Upload an audio attachment before syncing a transcript." });
+    }
+
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(transcript.ToDto());
+});
 
 app.MapGet("/api/attachments/{id:guid}/download", async (Guid id, AppDbContext db, IFileStorage storage, HttpContext http, CancellationToken ct) =>
 {
@@ -359,7 +424,7 @@ app.MapPost("/api/sync", async (SyncRequest request, AppDbContext db, HttpContex
 
         if (existing is null)
         {
-            db.Notes.Add(new NoteEntity
+            var note = new NoteEntity
             {
                 Id = noteId,
                 UserId = userId,
@@ -371,7 +436,9 @@ app.MapPost("/api/sync", async (SyncRequest request, AppDbContext db, HttpContex
                 CreatedAt = now,
                 UpdatedAt = now,
                 SyncVersion = mutation.Note.SyncVersion + 1
-            });
+            };
+            db.Notes.Add(note);
+            await TranscriptSync.ApplyFromNoteRequestAsync(note, mutation.Note, db, userId, now, ct);
         }
         else if (mutation.Note.SyncVersion >= existing.SyncVersion)
         {
@@ -383,6 +450,7 @@ app.MapPost("/api/sync", async (SyncRequest request, AppDbContext db, HttpContex
             existing.UpdatedAt = now;
             existing.DeletedAt = null;
             existing.SyncVersion = mutation.Note.SyncVersion + 1;
+            await TranscriptSync.ApplyFromNoteRequestAsync(existing, mutation.Note, db, userId, now, ct);
         }
     }
 
@@ -432,3 +500,75 @@ app.MapGet("/api/admin/stats", async (AppDbContext db, CancellationToken ct) =>
 app.Run();
 
 public partial class Program;
+
+internal static class TranscriptSync
+{
+    public static Task<TranscriptEntity?> ApplyFromNoteRequestAsync(
+        NoteEntity note,
+        UpsertNoteRequest request,
+        AppDbContext db,
+        Guid userId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (request.TranscriptStatus is null
+            || request.TranscriptStatus == TranscriptStatus.None
+            || string.IsNullOrWhiteSpace(request.TranscriptText))
+        {
+            return Task.FromResult<TranscriptEntity?>(null);
+        }
+
+        return UpsertAsync(
+            note,
+            new UpsertTranscriptRequest(
+                string.IsNullOrWhiteSpace(request.TranscriptLanguage) ? "auto" : request.TranscriptLanguage,
+                request.TranscriptText,
+                request.TranscriptStatus.Value),
+            db,
+            userId,
+            now,
+            requireAudio: false,
+            cancellationToken);
+    }
+
+    public static async Task<TranscriptEntity?> UpsertAsync(
+        NoteEntity note,
+        UpsertTranscriptRequest request,
+        AppDbContext db,
+        Guid userId,
+        DateTimeOffset now,
+        bool requireAudio,
+        CancellationToken cancellationToken)
+    {
+        var attachment = await db.Attachments
+            .Where(x => x.NoteId == note.Id && x.UserId == userId && x.Type == AttachmentType.Audio)
+            .OrderByDescending(x => x.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (attachment is null)
+        {
+            return null;
+        }
+
+        var transcript = await db.Transcripts.FirstOrDefaultAsync(x => x.NoteId == note.Id && x.UserId == userId, cancellationToken);
+        if (transcript is null)
+        {
+            transcript = new TranscriptEntity
+            {
+                UserId = userId,
+                NoteId = note.Id,
+                AttachmentId = attachment.Id
+            };
+            db.Transcripts.Add(transcript);
+        }
+
+        transcript.AttachmentId = attachment.Id;
+        transcript.Language = string.IsNullOrWhiteSpace(request.Language) ? "auto" : request.Language;
+        transcript.Text = request.Text;
+        transcript.Status = request.Status;
+        transcript.ErrorMessage = null;
+        transcript.UpdatedAt = now;
+        note.UpdatedAt = now;
+        note.SyncVersion++;
+        return transcript;
+    }
+}

@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: notesmuchachos-api
+    runtime: docker
+    plan: free
+    dockerfilePath: src/ProjectCal.Api/Dockerfile
+    envVars:
+      - key: ASPNETCORE_URLS
+        value: http://+:8080
+      - key: Database__Provider
+        value: Postgres
+      - key: Database__EnsureCreated
+        value: true
+      - key: Storage__RootPath
+        value: /tmp/projectcal-media
+      - key: Groq__TranscriptionModel
+        value: whisper-large-v3-turbo
+      - key: Jwt__Issuer
+        value: ProjectCal
+      - key: Jwt__Audience
+        value: ProjectCal.Client
+      - key: SUPABASE_DB_CONNECTION_STRING
+        sync: false
+      - key: Jwt__SigningKey
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false

@@ -1,12 +1,12 @@
 # ProjectCal cloud sync setup
 
-This guide prepares the shared backend used by the Windows app when `Settings -> Sync mode -> Cloud` is selected.
+This guide prepares the shared backend used by the Windows app. Users do not see database URLs or transcription keys; the app talks only to ProjectCal.Api.
 
 ## 1. Rotate exposed secrets first
 
 If any API keys or database passwords were pasted into chat, GitHub issues, screenshots, or commits, replace them before production:
 
-- OpenAI: create a new API key and revoke the old one.
+- Groq/OpenAI: create a new API key and revoke the old one.
 - Supabase: reset the database password if it was shared.
 - JWT: generate a new long random signing key.
 
@@ -22,40 +22,33 @@ Never commit real secrets to this repository.
 
 The API currently creates the required schema on startup when `Database__EnsureCreated=true`.
 
-## 3. Deploy the API and worker
+## 3. Deploy on Render Free
 
-Deploy these projects as two services:
+For the current free setup, deploy one Render `Web Service` from this repository:
 
-- `src/ProjectCal.Api`
-- `src/ProjectCal.Worker`
+- Service type: `Web Services`
+- Language/runtime: `Docker`
+- Branch: the branch you pushed for deployment
+- Dockerfile path: `src/ProjectCal.Api/Dockerfile`
+- Instance type: `Free`
 
-Required environment variables for both services:
+Required environment variables:
 
 ```text
 Database__Provider=Postgres
 SUPABASE_DB_CONNECTION_STRING=Host=...;Port=6543;Database=postgres;Username=postgres....;Password=...;SSL Mode=Require
 Storage__RootPath=/app/App_Data/media
-```
-
-Required only for API:
-
-```text
 ASPNETCORE_URLS=http://+:8080
 Jwt__Issuer=ProjectCal
 Jwt__Audience=ProjectCal.Client
 Jwt__SigningKey=replace-with-a-long-random-secret-at-least-32-bytes
+GROQ_API_KEY=gsk-...
+Groq__TranscriptionModel=whisper-large-v3-turbo
 ```
 
-Optional for worker transcription:
+The included `render.yaml` defines the public settings and marks secrets as manual Render environment variables.
 
-```text
-OPENAI_API_KEY=sk-...
-OpenAI__TranscriptionModel=gpt-4o-mini-transcribe
-```
-
-Important: API and Worker must see the same media folder. If your cloud platform runs them as separate services without a shared volume, audio/photo metadata can sync but media/transcription can fail. The next production step is S3-compatible storage.
-
-For a one-VM Oracle Cloud Always Free setup, follow [`ORACLE_ALWAYS_FREE.md`](ORACLE_ALWAYS_FREE.md). It runs API and Worker together with a shared Docker volume.
+Important: Render Free filesystem is temporary. Notes, users, and transcripts persist in Supabase Postgres; uploaded audio/photo files need Supabase Storage or S3-compatible storage before production.
 
 ## 4. Health check
 
@@ -74,18 +67,15 @@ Expected response:
 }
 ```
 
-## 5. Windows app Cloud mode
+## 5. Windows app API URL
 
-1. Install/open ProjectCal.
-2. Go to `Settings`.
-3. Set `Sync mode` to `Cloud`.
-4. Put your backend API domain into `Cloud API URL`.
+For private testing, set the hidden API URL on Windows:
 
-Example:
-
-```text
-https://projectcal-api.your-domain.com
+```powershell
+[Environment]::SetEnvironmentVariable("PROJECTCAL_API_URL", "https://YOUR_RENDER_SERVICE.onrender.com", "User")
 ```
+
+Restart ProjectCal after changing it.
 
 Do not put the Supabase URL here. The app talks to ProjectCal.Api, and ProjectCal.Api talks to Supabase.
 

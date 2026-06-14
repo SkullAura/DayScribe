@@ -13,7 +13,6 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using ProjectCal.Shared;
 using ProjectCal_Client.Services;
-using Windows.Globalization;
 using Windows.Media.Capture;
 using Windows.Media.Core;
 using Windows.Media.MediaProperties;
@@ -33,9 +32,8 @@ public sealed partial class MainPage : Page
     private const string DefaultDurationSettingKey = "settings_default_duration";
     private const string TranscriptionLanguageSettingKey = "settings_transcription_language";
     private const string AutoSyncMediaSettingKey = "settings_auto_sync_media";
-    private const string SyncModeSettingKey = "settings_sync_mode";
-    private const string CloudApiUrlSettingKey = "settings_cloud_api_url";
     private const string LocalApiUrl = "http://localhost:5009";
+    private const string ManagedCloudApiUrl = "";
     private const string UpdateBranch = "first-ui-update";
     private const string UpdateCommitUrl = "https://api.github.com/repos/SkullAura/NotesMuchachos/commits/" + UpdateBranch;
 
@@ -257,7 +255,7 @@ public sealed partial class MainPage : Page
                     StreamingCaptureMode = StreamingCaptureMode.Audio
                 });
 
-                var folder = await ApplicationData.Current.LocalFolder.CreateFolderAsync("ProjectCalRecordings", CreationCollisionOption.OpenIfExists);
+                var folder = await StorageFolder.GetFolderFromPathAsync(ClientAppData.RecordingsPath);
                 _recordingFile = await folder.CreateFileAsync($"{Guid.NewGuid():N}.wav", CreationCollisionOption.GenerateUniqueName);
                 await _mediaCapture.StartRecordToStorageFileAsync(MediaEncodingProfile.CreateWav(AudioEncodingQuality.Auto), _recordingFile);
                 _isRecording = true;
@@ -280,15 +278,16 @@ public sealed partial class MainPage : Page
             if (recordedFile is not null)
             {
                 await _store.AddAttachmentAsync(_selectedNoteId!.Value, recordedFile, AttachmentType.Audio);
+                await _store.UpdateTranscriptAsync(_selectedNoteId.Value, null, TranscriptStatus.Pending);
                 await LoadSelectedMediaAsync(_selectedNoteId.Value);
             }
 
             StatusBox.Text = _api.IsSignedIn
-                ? "Audio saved. Uploading for transcription..."
-                : "Audio saved locally. Login to upload it for transcription.";
+                ? "Audio saved. Uploading for server transcription..."
+                : "Audio saved locally. Sign in and sync to transcribe it.";
             SyncStateText.Text = "Local changes";
-            TranscriptStateText.Text = _api.IsSignedIn ? "Uploading" : "Needs login";
-            SetMediaAction(_api.IsSignedIn ? "Uploading audio automatically..." : "Audio is saved locally. Login to upload.", _api.IsSignedIn);
+            TranscriptStateText.Text = _api.IsSignedIn ? T("queued") : T("noAudio");
+            SetMediaAction(_api.IsSignedIn ? "Uploading audio for server transcription..." : "Audio is saved locally. Sign in and sync to transcribe.", _api.IsSignedIn);
             if (_api.IsSignedIn)
             {
                 await SyncNowAsync();
@@ -334,36 +333,6 @@ public sealed partial class MainPage : Page
             (T("languageUkrainian"), "uk"),
             (T("languageEnglish"), "en")
         ], GetStringSetting(TranscriptionLanguageSettingKey, "auto"));
-
-        var syncModeBox = SettingComboBox(T("syncMode"), [
-            (T("syncModeLocal"), "Local"),
-            (T("syncModeCloud"), "Cloud")
-        ], NormalizeSyncMode(GetStringSetting(SyncModeSettingKey, "Local")));
-
-        var cloudApiUrlBox = new TextBox
-        {
-            Header = T("cloudApiUrl"),
-            Text = GetStringSetting(CloudApiUrlSettingKey, ""),
-            PlaceholderText = "https://your-project-api.example.com",
-            HorizontalAlignment = HorizontalAlignment.Stretch
-        };
-
-        var syncModeHint = new TextBlock
-        {
-            Foreground = (Brush)Resources["MutedTextBrush"],
-            TextWrapping = TextWrapping.Wrap
-        };
-
-        void UpdateSyncModeFields()
-        {
-            var cloudMode = string.Equals(SelectedTag(syncModeBox, "Local"), "Cloud", StringComparison.OrdinalIgnoreCase);
-            cloudApiUrlBox.IsEnabled = cloudMode;
-            cloudApiUrlBox.Opacity = cloudMode ? 1 : 0.55;
-            syncModeHint.Text = cloudMode ? T("syncModeCloudHint") : T("syncModeLocalHint");
-        }
-
-        syncModeBox.SelectionChanged += (_, _) => UpdateSyncModeFields();
-        UpdateSyncModeFields();
 
         var autoSyncSwitch = new ToggleSwitch
         {
@@ -427,9 +396,6 @@ public sealed partial class MainPage : Page
                 themeBox,
                 durationBox,
                 transcriptionLanguageBox,
-                syncModeBox,
-                cloudApiUrlBox,
-                syncModeHint,
                 autoSyncSwitch,
                 updatePanel
             }
@@ -454,37 +420,22 @@ public sealed partial class MainPage : Page
         var theme = SelectedTag(themeBox, "Light");
         var duration = SelectedTag(durationBox, "60");
         var transcriptionLanguage = SelectedTag(transcriptionLanguageBox, "auto");
-        var syncMode = NormalizeSyncMode(SelectedTag(syncModeBox, "Local"));
-        var cloudApiUrl = NormalizeApiBaseUrl(cloudApiUrlBox.Text);
-
-        if (syncMode == "Cloud" && string.IsNullOrWhiteSpace(cloudApiUrl))
-        {
-            StatusBox.Text = T("cloudApiUrlRequired");
-            return;
-        }
 
         SetSetting(AppLanguageSettingKey, appLanguage);
         SetSetting(ThemeSettingKey, theme);
         SetSetting(DefaultDurationSettingKey, duration);
         SetSetting(TranscriptionLanguageSettingKey, transcriptionLanguage);
-        SetSetting(SyncModeSettingKey, syncMode);
-        SetSetting(CloudApiUrlSettingKey, cloudApiUrl);
         SetSetting(AutoSyncMediaSettingKey, autoSyncSwitch.IsOn);
 
         ApplyThemeSetting(theme);
         ApplyLanguageSetting(appLanguage);
-        var apiChanged = ConfigureApiClientFromSettings(resetSession: true);
-        if (apiChanged)
-        {
-            ReturnToAuthScreen(T("syncModeChangedLoginAgain"));
-        }
 
         if (_selectedNoteId is null)
         {
             EndTimePicker.Time = TimeOnly.FromTimeSpan(StartTimePicker.Time).AddMinutes(GetDefaultDurationMinutes()).ToTimeSpan();
         }
 
-        StatusBox.Text = apiChanged ? T("syncModeChangedLoginAgain") : T("settingsSaved");
+        StatusBox.Text = T("settingsSaved");
     }
 
     private async Task SyncNowAsync()
@@ -494,7 +445,7 @@ public sealed partial class MainPage : Page
         var dirtyNotes = await _store.GetDirtyNotesAsync();
         var mutations = dirtyNotes.Select(note => new SyncNoteMutation(
             note.DeletedAt is null ? SyncOperation.Upsert : SyncOperation.Delete,
-            new UpsertNoteRequest(note.Id, note.Title, note.Body, note.Date, note.StartTime, note.EndTime, note.SyncVersion))).ToArray();
+            ToUpsertNoteRequest(note))).ToArray();
 
         var response = await _api.SyncAsync(new SyncRequest(_lastSyncAt, mutations));
         foreach (var note in response.Notes)
@@ -551,7 +502,7 @@ public sealed partial class MainPage : Page
         _lastSyncAt = response.ServerTime;
         if (uploadedMedia > 0)
         {
-            StatusBox.Text = $"Uploaded {uploadedMedia} media file(s). Waiting for transcription...";
+            StatusBox.Text = $"Uploaded {uploadedMedia} media file(s). Waiting for server transcription...";
             MediaStateText.Text = "Uploaded";
             TranscriptStateText.Text = "Processing";
             SetMediaAction($"Uploaded {uploadedMedia} media file(s). Checking updates...", true);
@@ -593,7 +544,7 @@ public sealed partial class MainPage : Page
 
         var mutation = new SyncNoteMutation(
             SyncOperation.Upsert,
-            new UpsertNoteRequest(note.Id, note.Title, note.Body, note.Date, note.StartTime, note.EndTime, note.SyncVersion));
+            ToUpsertNoteRequest(note));
 
         var response = await _api.SyncAsync(new SyncRequest(_lastSyncAt, [mutation]));
         foreach (var serverNote in response.Notes)
@@ -608,6 +559,21 @@ public sealed partial class MainPage : Page
 
         _lastSyncAt = response.ServerTime;
         return true;
+    }
+
+    private UpsertNoteRequest ToUpsertNoteRequest(LocalNote note)
+    {
+        return new UpsertNoteRequest(
+            note.Id,
+            note.Title,
+            note.Body,
+            note.Date,
+            note.StartTime,
+            note.EndTime,
+            note.SyncVersion,
+            note.TranscriptText,
+            note.TranscriptStatus,
+            GetSelectedLanguage());
     }
 
     private async Task PullTranscriptionUpdatesAsync()
@@ -2509,7 +2475,7 @@ public sealed partial class MainPage : Page
         var normalizedLanguage = NormalizeAppLanguage(language);
         SetSetting(AppLanguageSettingKey, normalizedLanguage);
         var cultureLanguage = CultureLanguage(normalizedLanguage);
-        ApplicationLanguages.PrimaryLanguageOverride = cultureLanguage;
+        CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(cultureLanguage);
 
         AuthSubtitleText.Text = T("authSubtitle");
         EmailLabel.Text = T("email");
@@ -2757,14 +2723,6 @@ public sealed partial class MainPage : Page
                 "languageUkrainian" => "Украинский",
                 "languageEnglish" => "Английский",
                 "autoSyncMedia" => "Синхронизировать после записи или фото",
-                "syncMode" => "Режим синхронизации",
-                "syncModeLocal" => "Локальный",
-                "syncModeCloud" => "Облачный",
-                "cloudApiUrl" => "Cloud API URL",
-                "syncModeLocalHint" => "Клиент будет ходить в локальный backend на localhost:5009. Это режим для одного ПК.",
-                "syncModeCloudHint" => "Клиент будет ходить в облачный backend. На других устройствах укажите этот же URL.",
-                "cloudApiUrlRequired" => "Для Cloud-режима нужен адрес backend API.",
-                "syncModeChangedLoginAgain" => "Режим синхронизации изменен. Войдите снова.",
                 "updates" => "\u041e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f",
                 "checkUpdates" => "\u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f",
                 "updateNotChecked" => "\u041f\u0440\u043e\u0432\u0435\u0440\u043a\u0430 \u0435\u0449\u0451 \u043d\u0435 \u0437\u0430\u043f\u0443\u0441\u043a\u0430\u043b\u0430\u0441\u044c.",
@@ -2889,14 +2847,6 @@ public sealed partial class MainPage : Page
                 "languageUkrainian" => "Ukrainian",
                 "languageEnglish" => "English",
                 "autoSyncMedia" => "Auto sync after recording or photo",
-                "syncMode" => "Sync mode",
-                "syncModeLocal" => "Local",
-                "syncModeCloud" => "Cloud",
-                "cloudApiUrl" => "Cloud API URL",
-                "syncModeLocalHint" => "The client will use the local backend on localhost:5009. This is the single-PC mode.",
-                "syncModeCloudHint" => "The client will use a cloud backend. Use the same URL on other devices.",
-                "cloudApiUrlRequired" => "Cloud mode needs a backend API URL.",
-                "syncModeChangedLoginAgain" => "Sync mode changed. Sign in again.",
                 "updates" => "Updates",
                 "checkUpdates" => "Check GitHub updates",
                 "updateNotChecked" => "Update check has not run yet.",
@@ -3050,22 +3000,12 @@ public sealed partial class MainPage : Page
 
     private string ResolveApiBaseUrl()
     {
-        var syncMode = NormalizeSyncMode(GetStringSetting(SyncModeSettingKey, "Local"));
-        if (syncMode == "Cloud")
-        {
-            var cloudUrl = NormalizeApiBaseUrl(GetStringSetting(CloudApiUrlSettingKey, ""));
-            if (!string.IsNullOrWhiteSpace(cloudUrl))
-            {
-                return cloudUrl;
-            }
-        }
+        var managedUrl = NormalizeApiBaseUrl(
+            Environment.GetEnvironmentVariable("PROJECTCAL_API_URL")
+            ?? Environment.GetEnvironmentVariable("PROJECTCAL_API_URL", EnvironmentVariableTarget.User)
+            ?? ManagedCloudApiUrl);
 
-        return LocalApiUrl;
-    }
-
-    private static string NormalizeSyncMode(string value)
-    {
-        return string.Equals(value, "Cloud", StringComparison.OrdinalIgnoreCase) ? "Cloud" : "Local";
+        return string.IsNullOrWhiteSpace(managedUrl) ? LocalApiUrl : managedUrl;
     }
 
     private static string NormalizeApiBaseUrl(string value)
@@ -3087,17 +3027,25 @@ public sealed partial class MainPage : Page
 
     private static string GetStringSetting(string key, string fallback)
     {
-        return ApplicationData.Current.LocalSettings.Values[key] as string ?? fallback;
+        return ClientAppData.GetString(key) ?? fallback;
     }
 
     private static bool GetBoolSetting(string key, bool fallback)
     {
-        return ApplicationData.Current.LocalSettings.Values[key] is bool value ? value : fallback;
+        return ClientAppData.GetBool(key) ?? fallback;
     }
 
     private static void SetSetting(string key, object value)
     {
-        ApplicationData.Current.LocalSettings.Values[key] = value;
+        switch (value)
+        {
+            case bool boolValue:
+                ClientAppData.Set(key, boolValue);
+                break;
+            default:
+                ClientAppData.Set(key, value.ToString() ?? "");
+                break;
+        }
     }
 
     private void StopAudioPlayback()

@@ -70,7 +70,15 @@ public sealed record UpsertNoteRequest(
     DateOnly Date,
     TimeOnly StartTime,
     TimeOnly? EndTime,
-    long SyncVersion);
+    long SyncVersion,
+    string? TranscriptText = null,
+    TranscriptStatus? TranscriptStatus = null,
+    string? TranscriptLanguage = null);
+
+public sealed record UpsertTranscriptRequest(
+    string Language,
+    string Text,
+    TranscriptStatus Status);
 
 public sealed record AttachmentDto(
     Guid Id,

@@ -11,7 +11,7 @@ public sealed class LocalNoteStore
 
     public LocalNoteStore()
     {
-        var root = Path.Combine(ApplicationData.Current.LocalFolder.Path, "ProjectCal");
+        var root = ClientAppData.DataPath;
         Directory.CreateDirectory(root);
         _mediaRoot = Path.Combine(root, "media");
         Directory.CreateDirectory(_mediaRoot);
@@ -197,6 +197,16 @@ public sealed class LocalNoteStore
     {
         await using var connection = Open();
         await connection.OpenAsync();
+        var existing = await GetNoteAsync(connection, note.Id);
+        var transcriptText = note.Transcript?.Text;
+        var transcriptStatus = note.Transcript?.Status ?? TranscriptStatus.None;
+        if ((transcriptStatus == TranscriptStatus.None || string.IsNullOrWhiteSpace(transcriptText))
+            && existing?.TranscriptStatus is TranscriptStatus.Processing or TranscriptStatus.Done or TranscriptStatus.Failed)
+        {
+            transcriptText = existing.TranscriptText;
+            transcriptStatus = existing.TranscriptStatus;
+        }
+
         var local = new LocalNote
         {
             Id = note.Id,
@@ -210,8 +220,8 @@ public sealed class LocalNoteStore
             DeletedAt = note.DeletedAt,
             SyncVersion = note.SyncVersion,
             IsDirty = false,
-            TranscriptText = note.Transcript?.Text,
-            TranscriptStatus = note.Transcript?.Status ?? TranscriptStatus.None
+            TranscriptText = transcriptText,
+            TranscriptStatus = transcriptStatus
         };
 
         var command = connection.CreateCommand();
@@ -255,7 +265,28 @@ public sealed class LocalNoteStore
         await command.ExecuteNonQueryAsync();
     }
 
-    public async Task AddAttachmentAsync(Guid noteId, StorageFile file, AttachmentType type)
+    public async Task UpdateTranscriptAsync(Guid noteId, string? text, TranscriptStatus status)
+    {
+        await using var connection = Open();
+        await connection.OpenAsync();
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE notes
+            SET transcript_text = $text,
+                transcript_status = $status,
+                updated_at = $updated,
+                sync_version = sync_version + 1,
+                is_dirty = 1
+            WHERE id = $note_id
+            """;
+        command.Parameters.AddWithValue("$note_id", noteId.ToString());
+        command.Parameters.AddWithValue("$text", text ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$status", (int)status);
+        command.Parameters.AddWithValue("$updated", DateTimeOffset.UtcNow.ToString("O"));
+        await command.ExecuteNonQueryAsync();
+    }
+
+    public async Task<LocalAttachment> AddAttachmentAsync(Guid noteId, StorageFile file, AttachmentType type)
     {
         var id = Guid.NewGuid();
         var extension = Path.GetExtension(file.Name);
@@ -278,6 +309,18 @@ public sealed class LocalNoteStore
         command.Parameters.AddWithValue("$mime_type", type == AttachmentType.Audio ? AudioMimeType(file.Name) : PhotoMimeType(file.Name));
         command.Parameters.AddWithValue("$size", (long)properties.Size);
         await command.ExecuteNonQueryAsync();
+
+        return new LocalAttachment
+        {
+            Id = id,
+            NoteId = noteId,
+            Type = type,
+            LocalPath = localPath,
+            FileName = file.Name,
+            MimeType = type == AttachmentType.Audio ? AudioMimeType(file.Name) : PhotoMimeType(file.Name),
+            Size = (long)properties.Size,
+            IsUploaded = false
+        };
     }
 
     public async Task<IReadOnlyList<LocalAttachment>> GetPendingAttachmentsAsync()
