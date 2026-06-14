@@ -602,17 +602,41 @@ public sealed partial class MainPage : Page
 
     private async void DateSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_isUpdatingDateSelector)
+        if (_isUpdatingDateSelector
+            || MonthBox?.SelectedItem is null
+            || DayBox?.SelectedItem is null
+            || YearBox?.SelectedItem is null)
         {
             return;
         }
 
-        var year = SelectedInt(YearBox, _selectedDate.Year);
-        var month = SelectedInt(MonthBox, _selectedDate.Month);
-        var maxDay = DateTime.DaysInMonth(year, month);
-        var day = Math.Clamp(SelectedInt(DayBox, _selectedDate.Day), 1, maxDay);
-        SetSelectedDate(new DateOnly(year, month, day), reload: false);
-        await ReloadAsync();
+        try
+        {
+            var year = SelectedInt(YearBox, _selectedDate.Year);
+            var month = SelectedInt(MonthBox, _selectedDate.Month);
+            var maxDay = DateTime.DaysInMonth(year, month);
+            var day = Math.Clamp(SelectedInt(DayBox, _selectedDate.Day), 1, maxDay);
+
+            if (ReferenceEquals(sender, MonthBox) || ReferenceEquals(sender, YearBox))
+            {
+                _isUpdatingDateSelector = true;
+                try
+                {
+                    PopulateDayBox(year, month, day);
+                }
+                finally
+                {
+                    _isUpdatingDateSelector = false;
+                }
+            }
+
+            _selectedDate = new DateOnly(year, month, day);
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusBox.Text = $"{T("dateChangeFailed")} {ex.Message}";
+        }
     }
 
     private async void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -786,7 +810,7 @@ public sealed partial class MainPage : Page
             return;
         }
 
-        SetSelectedDate(note.Date, reload: false);
+        SetSelectedDate(note.Date, reload: true);
         SelectNote(note, $"{T("openedNote")} {note.Title}.");
         await LoadSelectedMediaAsync(note.Id);
         await ReloadAsync();
@@ -2619,7 +2643,10 @@ public sealed partial class MainPage : Page
     private void SetSelectedDate(DateOnly date, bool reload)
     {
         _selectedDate = date;
-        PopulateDateSelector(CultureLanguage(GetStringSetting(AppLanguageSettingKey, "en")));
+        if (reload)
+        {
+            PopulateDateSelector(CultureLanguage(GetStringSetting(AppLanguageSettingKey, "en")));
+        }
     }
 
     private void PopulateDateSelector(string cultureLanguage)
@@ -2733,6 +2760,7 @@ public sealed partial class MainPage : Page
                 "updateAvailable" => "\u0415\u0441\u0442\u044c \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435:",
                 "updateFound" => "\u041d\u0430 GitHub \u043d\u0430\u0439\u0434\u0435\u043d\u0430 \u043d\u043e\u0432\u0430\u044f \u0432\u0435\u0440\u0441\u0438\u044f.",
                 "updateCheckFailed" => "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f",
+                "dateChangeFailed" => "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043c\u0435\u043d\u0438\u0442\u044c \u0434\u0435\u043d\u044c:",
                 "settings" => "Настройки",
                 "save" => "Сохранить",
                 "cancel" => "Отмена",
@@ -2857,6 +2885,7 @@ public sealed partial class MainPage : Page
                 "updateAvailable" => "Update available:",
                 "updateFound" => "A newer version was found on GitHub.",
                 "updateCheckFailed" => "Could not check updates",
+                "dateChangeFailed" => "Could not change day:",
                 "settings" => "Settings",
                 "save" => "Save",
                 "cancel" => "Cancel",
