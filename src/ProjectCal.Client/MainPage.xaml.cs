@@ -34,8 +34,10 @@ public sealed partial class MainPage : Page
     private const string AutoSyncMediaSettingKey = "settings_auto_sync_media";
     private const string LocalApiUrl = "http://localhost:5009";
     private const string ManagedCloudApiUrl = "https://notesmuchachos.onrender.com";
-    private const string UpdateBranch = "render-cloud-groq";
+    private const string UpdateBranch = "main";
     private const string UpdateCommitUrl = "https://api.github.com/repos/SkullAura/NotesMuchachos/commits/" + UpdateBranch;
+    private const string UpdateLatestReleaseUrl = "https://api.github.com/repos/SkullAura/NotesMuchachos/releases/latest";
+    private const string UpdateInstallerAssetName = "NotesMuchachosSetup.exe";
 
     private readonly LocalNoteStore _store = new();
     private readonly ProjectCalApiClient _api = new();
@@ -78,7 +80,7 @@ public sealed partial class MainPage : Page
     private sealed record ResizeContext(LocalNote Note, FrameworkElement Host, ResizeEdge Edge);
     private sealed record TimelineLayout(LocalNote Note, LocalAttachmentSummary? AttachmentSummary, int Lane, int LaneCount);
     private sealed record StoredRichBody(string Format, string Plain, string Rtf);
-    private sealed record UpdateCheckResult(bool Success, bool UpdateAvailable, string Message, string? LocalSha, string? RemoteSha);
+    private sealed record UpdateCheckResult(bool Success, bool UpdateAvailable, string Message, string? LocalSha, string? RemoteSha, string? InstallerDownloadUrl = null);
     private sealed record AudioTranscriptSelection(LocalAttachment Attachment, LocalTranscript? Transcript);
     private sealed record AudioControlContext(LocalAttachment Attachment, LocalTranscript? Transcript, AudioListCommand Command);
 
@@ -362,12 +364,41 @@ public sealed partial class MainPage : Page
                 }
             }
         };
+
+        var installUpdateButton = new Button
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            IsEnabled = false,
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 8,
+                Children =
+                {
+                    new SymbolIcon(Symbol.Download),
+                    new TextBlock { Text = T("installUpdate") }
+                }
+            }
+        };
+
+        UpdateCheckResult? latestUpdateResult = null;
         checkUpdatesButton.Click += async (_, _) =>
         {
             checkUpdatesButton.IsEnabled = false;
+            installUpdateButton.IsEnabled = false;
             updateStatusText.Text = T("checkingUpdates");
             var result = await CheckForUpdatesAsync();
+            latestUpdateResult = result;
             updateStatusText.Text = result.Message;
+            checkUpdatesButton.IsEnabled = true;
+            installUpdateButton.IsEnabled = result.Success && result.UpdateAvailable;
+        };
+        installUpdateButton.Click += async (_, _) =>
+        {
+            checkUpdatesButton.IsEnabled = false;
+            installUpdateButton.IsEnabled = false;
+            updateStatusText.Text = T("downloadingUpdate");
+            updateStatusText.Text = await DownloadAndLaunchUpdateInstallerAsync(latestUpdateResult);
             checkUpdatesButton.IsEnabled = true;
         };
 
@@ -383,6 +414,7 @@ public sealed partial class MainPage : Page
                     FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
                 },
                 checkUpdatesButton,
+                installUpdateButton,
                 updateStatusText
             }
         };
@@ -2992,12 +3024,110 @@ public sealed partial class MainPage : Page
         }
     }
 
+    private async Task<string> DownloadAndLaunchUpdateInstallerAsync(UpdateCheckResult? knownResult)
+    {
+        try
+        {
+            var result = knownResult;
+            if (result is null || !result.Success)
+            {
+                result = await CheckForUpdatesAsync();
+            }
+
+            if (!result.Success)
+            {
+                return result.Message;
+            }
+
+            if (!result.UpdateAvailable)
+            {
+                return result.Message;
+            }
+
+            var downloadUrl = result.InstallerDownloadUrl ?? await GetLatestInstallerDownloadUrlAsync();
+            var updateDirectory = Path.Combine(Path.GetTempPath(), "NotesMuchachos", "Updates");
+            Directory.CreateDirectory(updateDirectory);
+
+            var remoteSuffix = ShortSha(result.RemoteSha);
+            var fileName = string.Equals(remoteSuffix, "unknown", StringComparison.OrdinalIgnoreCase)
+                ? UpdateInstallerAssetName
+                : $"NotesMuchachosSetup-{remoteSuffix}.exe";
+            var installerPath = Path.Combine(updateDirectory, fileName);
+
+            using (var request = CreateGitHubRequest(downloadUrl))
+            using (var response = await UpdateHttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead))
+            {
+                response.EnsureSuccessStatusCode();
+                await using var downloadStream = await response.Content.ReadAsStreamAsync();
+                await using var fileStream = File.Create(installerPath);
+                await downloadStream.CopyToAsync(fileStream);
+            }
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = installerPath,
+                Arguments = "/SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS",
+                UseShellExecute = true
+            });
+
+            _ = Task.Delay(900).ContinueWith(_ =>
+            {
+                DispatcherQueue.TryEnqueue(() => Application.Current.Exit());
+            });
+
+            return T("installerStarted");
+        }
+        catch (Exception ex)
+        {
+            return $"{T("updateInstallFailed")}: {ex.Message}";
+        }
+    }
+
+    private async Task<string> GetLatestInstallerDownloadUrlAsync()
+    {
+        using var request = CreateGitHubRequest(UpdateLatestReleaseUrl);
+        using var response = await UpdateHttpClient.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+
+        await using var stream = await response.Content.ReadAsStreamAsync();
+        using var document = await JsonDocument.ParseAsync(stream);
+        if (document.RootElement.TryGetProperty("assets", out var assets))
+        {
+            foreach (var asset in assets.EnumerateArray())
+            {
+                var name = asset.TryGetProperty("name", out var nameElement)
+                    ? nameElement.GetString()
+                    : null;
+                if (!string.Equals(name, UpdateInstallerAssetName, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var downloadUrl = asset.TryGetProperty("browser_download_url", out var urlElement)
+                    ? urlElement.GetString()
+                    : null;
+                if (!string.IsNullOrWhiteSpace(downloadUrl))
+                {
+                    return downloadUrl;
+                }
+            }
+        }
+
+        throw new InvalidOperationException(T("installerAssetMissing"));
+    }
+
+    private static HttpRequestMessage CreateGitHubRequest(string url)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.UserAgent.Add(new ProductInfoHeaderValue("NotesMuchachos", "1.0"));
+        return request;
+    }
+
     private async Task<(string Sha, string Message)> GetRemoteUpdateRevisionAsync()
     {
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, UpdateCommitUrl);
-            request.Headers.UserAgent.Add(new ProductInfoHeaderValue("NotesMuchachos", "1.0"));
+            using var request = CreateGitHubRequest(UpdateCommitUrl);
             using var response = await UpdateHttpClient.SendAsync(request);
             response.EnsureSuccessStatusCode();
 
@@ -3454,8 +3584,13 @@ public sealed partial class MainPage : Page
                 "autoSyncMedia" => "Синхронизировать после записи или фото",
                 "updates" => "\u041e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f",
                 "checkUpdates" => "\u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f",
+                "installUpdate" => "\u0423\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435",
                 "updateNotChecked" => "\u041f\u0440\u043e\u0432\u0435\u0440\u043a\u0430 \u0435\u0449\u0451 \u043d\u0435 \u0437\u0430\u043f\u0443\u0441\u043a\u0430\u043b\u0430\u0441\u044c.",
                 "checkingUpdates" => "\u041f\u0440\u043e\u0432\u0435\u0440\u044f\u044e GitHub...",
+                "downloadingUpdate" => "\u0421\u043a\u0430\u0447\u0438\u0432\u0430\u044e \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435...",
+                "installerStarted" => "\u0423\u0441\u0442\u0430\u043d\u043e\u0432\u0449\u0438\u043a \u0437\u0430\u043f\u0443\u0449\u0435\u043d. \u041f\u0440\u0438\u043b\u043e\u0436\u0435\u043d\u0438\u0435 \u0441\u0435\u0439\u0447\u0430\u0441 \u0437\u0430\u043a\u0440\u043e\u0435\u0442\u0441\u044f.",
+                "updateInstallFailed" => "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0443\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435",
+                "installerAssetMissing" => "\u0412 GitHub Release \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d NotesMuchachosSetup.exe.",
                 "latestGithubVersion" => "\u041f\u043e\u0441\u043b\u0435\u0434\u043d\u044f\u044f \u0432\u0435\u0440\u0441\u0438\u044f \u043d\u0430 GitHub",
                 "currentBuildUnknown" => "\u0422\u0435\u043a\u0443\u0449\u0438\u0439 \u043a\u043e\u043c\u043c\u0438\u0442 \u0441\u0431\u043e\u0440\u043a\u0438 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d.",
                 "appUpToDate" => "\u0412\u0435\u0440\u0441\u0438\u044f \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u0430:",
@@ -3579,8 +3714,13 @@ public sealed partial class MainPage : Page
                 "autoSyncMedia" => "Auto sync after recording or photo",
                 "updates" => "Updates",
                 "checkUpdates" => "Check GitHub updates",
+                "installUpdate" => "Install update",
                 "updateNotChecked" => "Update check has not run yet.",
                 "checkingUpdates" => "Checking GitHub...",
+                "downloadingUpdate" => "Downloading update...",
+                "installerStarted" => "Installer started. The app will close now.",
+                "updateInstallFailed" => "Could not install update",
+                "installerAssetMissing" => "NotesMuchachosSetup.exe was not found in the GitHub Release.",
                 "latestGithubVersion" => "Latest GitHub version",
                 "currentBuildUnknown" => "Current build commit was not found.",
                 "appUpToDate" => "App is up to date:",
