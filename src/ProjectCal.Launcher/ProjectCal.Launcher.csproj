@@ -7,5 +7,6 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
+    <ApplicationIcon>..\ProjectCal.Client\Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
 </Project>
