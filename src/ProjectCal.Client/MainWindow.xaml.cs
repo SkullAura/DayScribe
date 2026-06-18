@@ -1,6 +1,7 @@
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using System.IO;
 using Windows.UI;
 using WinRT.Interop;
 
@@ -19,8 +20,20 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        ApplyWindowIcon();
         ApplyTitleBarTheme(dark: false);
         RootFrame.Navigate(typeof(MainPage));
+    }
+
+    private void ApplyWindowIcon()
+    {
+        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+        if (!File.Exists(iconPath))
+        {
+            return;
+        }
+
+        GetAppWindow()?.SetIcon(iconPath);
     }
 
     public void ApplyTitleBarTheme(bool dark)
@@ -30,9 +43,11 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var windowHandle = WindowNative.GetWindowHandle(this);
-        var windowId = Win32Interop.GetWindowIdFromWindow(windowHandle);
-        var titleBar = AppWindow.GetFromWindowId(windowId).TitleBar;
+        var titleBar = GetAppWindow()?.TitleBar;
+        if (titleBar is null)
+        {
+            return;
+        }
 
         var background = dark
             ? Color.FromArgb(255, 20, 22, 20)
@@ -62,5 +77,12 @@ public sealed partial class MainWindow : Window
         titleBar.ButtonPressedForegroundColor = foreground;
         titleBar.ButtonInactiveBackgroundColor = inactive;
         titleBar.ButtonInactiveForegroundColor = Color.FromArgb(255, 96, 115, 112);
+    }
+
+    private AppWindow? GetAppWindow()
+    {
+        var windowHandle = WindowNative.GetWindowHandle(this);
+        var windowId = Win32Interop.GetWindowIdFromWindow(windowHandle);
+        return AppWindow.GetFromWindowId(windowId);
     }
 }
