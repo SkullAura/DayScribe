@@ -2562,11 +2562,12 @@ public sealed partial class MainPage : Page
 
     private async void AudioControl_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: AudioControlContext context })
+        if (sender is not Button { Tag: AudioControlContext context } button)
         {
             return;
         }
 
+        await AnimateAudioButtonPressAsync(button);
         await RunUiAsync(async () =>
         {
             SelectAudioTranscript(context.Attachment, context.Transcript, "Selected audio.");
@@ -2578,7 +2579,7 @@ public sealed partial class MainPage : Page
                     await PlayAudioAttachmentAsync(context.Attachment);
                     break;
                 case AudioListCommand.Pause:
-                    PauseAudioPlayback(context.Attachment);
+                    await TogglePauseAudioPlaybackAsync(context.Attachment);
                     break;
                 case AudioListCommand.Stop:
                     StopSelectedAudioPlayback(context.Attachment);
@@ -2597,6 +2598,33 @@ public sealed partial class MainPage : Page
         SetMediaAction(message, false);
     }
 
+    private async Task TogglePauseAudioPlaybackAsync(LocalAttachment attachment)
+    {
+        if (_audioPlayer is not null
+            && _loadedAudioAttachmentId == attachment.Id
+            && _audioPlayer.PlaybackSession.PlaybackState == MediaPlaybackState.Playing)
+        {
+            _audioPlayer.Pause();
+            AudioStatusText.Text = $"Paused: {AudioStatusName(attachment)}";
+            SetMediaAction("Audio paused.", false);
+            StatusBox.Text = "Audio paused.";
+            return;
+        }
+
+        await PlayAudioAttachmentAsync(attachment);
+        AudioStatusText.Text = $"Resumed: {AudioStatusName(attachment)}";
+        SetMediaAction("Audio resumed.", false);
+        StatusBox.Text = "Audio resumed.";
+    }
+
+    private static async Task AnimateAudioButtonPressAsync(Button button)
+    {
+        var previousOpacity = button.Opacity;
+        button.Opacity = 0.62;
+        await Task.Delay(90);
+        button.Opacity = previousOpacity;
+    }
+
     private void PauseAudioPlayback(LocalAttachment attachment)
     {
         _audioPlayer?.Pause();
@@ -2610,15 +2638,8 @@ public sealed partial class MainPage : Page
         if (_audioPlayer is not null && _loadedAudioAttachmentId == attachment.Id)
         {
             _audioPlayer.Pause();
-            try
-            {
-                _audioPlayer.PlaybackSession.Position = TimeSpan.Zero;
-            }
-            catch
-            {
-                _audioPlayer.Source = null;
-                _loadedAudioAttachmentId = null;
-            }
+            _audioPlayer.Source = null;
+            _loadedAudioAttachmentId = null;
         }
 
         AudioStatusText.Text = $"Stopped: {AudioStatusName(attachment)}";
