@@ -319,7 +319,12 @@ notes.MapPost("/{noteId:guid}/attachments", async (Guid noteId, IFormFile file, 
     }
 
     var requestedAttachmentId = attachmentId ?? Guid.NewGuid();
-    var attachment = await db.Attachments.FirstOrDefaultAsync(x => x.Id == requestedAttachmentId && x.UserId == userId, ct);
+    var attachment = await db.Attachments.FirstOrDefaultAsync(x => x.Id == requestedAttachmentId, ct);
+    if (attachment is not null && attachment.UserId != userId)
+    {
+        return Results.Conflict(new { error = "Attachment id already belongs to another user." });
+    }
+
     if (attachment is not null && attachment.NoteId != noteId)
     {
         return Results.Conflict(new { error = "Attachment id already belongs to another note." });
@@ -354,7 +359,12 @@ notes.MapPost("/{noteId:guid}/attachments", async (Guid noteId, IFormFile file, 
 
     if (type == AttachmentType.Audio)
     {
-        var existingTranscript = await db.Transcripts.FirstOrDefaultAsync(x => x.AttachmentId == attachment.Id && x.UserId == userId, ct);
+        var existingTranscript = await db.Transcripts.FirstOrDefaultAsync(x => x.AttachmentId == attachment.Id, ct);
+        if (existingTranscript is not null && existingTranscript.UserId != userId)
+        {
+            return Results.Conflict(new { error = "Transcript already belongs to another user." });
+        }
+
         var transcriptLanguage = string.IsNullOrWhiteSpace(language) ? "auto" : language;
         var now = DateTimeOffset.UtcNow;
         if (existingTranscript is null)
@@ -608,7 +618,12 @@ internal static class TranscriptSync
             return null;
         }
 
-        var transcript = await db.Transcripts.FirstOrDefaultAsync(x => x.AttachmentId == attachment.Id && x.UserId == userId, cancellationToken);
+        var transcript = await db.Transcripts.FirstOrDefaultAsync(x => x.AttachmentId == attachment.Id, cancellationToken);
+        if (transcript is not null && transcript.UserId != userId)
+        {
+            throw new UnauthorizedAccessException("Transcript belongs to another user.");
+        }
+
         if (transcript is null)
         {
             transcript = new TranscriptEntity
