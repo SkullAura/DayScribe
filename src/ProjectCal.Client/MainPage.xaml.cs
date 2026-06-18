@@ -60,6 +60,7 @@ public sealed partial class MainPage : Page
     private double _resizeStartY;
     private bool _isRecording;
     private bool _isUpdatingDateSelector;
+    private bool _startupUpdatePromptShown;
 
     private const double HourHeight = 118;
     private const double MinuteHeight = HourHeight / 60.0;
@@ -2980,6 +2981,53 @@ public sealed partial class MainPage : Page
         {
             StatusBox.Text = result.Message;
         }
+
+        if (result.Success && result.UpdateAvailable)
+        {
+            await ShowStartupUpdatePromptAsync(result);
+        }
+    }
+
+    private async Task ShowStartupUpdatePromptAsync(UpdateCheckResult result)
+    {
+        if (_startupUpdatePromptShown || XamlRoot is null)
+        {
+            return;
+        }
+
+        _startupUpdatePromptShown = true;
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = T("startupUpdateTitle"),
+            Content = new StackPanel
+            {
+                Spacing = 10,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = T("startupUpdateBody"),
+                        TextWrapping = TextWrapping.Wrap
+                    },
+                    new TextBlock
+                    {
+                        Text = result.Message,
+                        Foreground = (Brush)Resources["MutedTextBrush"],
+                        TextWrapping = TextWrapping.Wrap
+                    }
+                }
+            },
+            PrimaryButtonText = T("installUpdate"),
+            CloseButtonText = T("later"),
+            DefaultButton = ContentDialogButton.Primary
+        };
+
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            StatusBox.Text = T("downloadingUpdate");
+            StatusBox.Text = await DownloadAndLaunchUpdateInstallerAsync(result);
+        }
     }
 
     private async Task<UpdateCheckResult> CheckForUpdatesAsync()
@@ -3288,6 +3336,10 @@ public sealed partial class MainPage : Page
     {
         var dark = string.Equals(theme, "Dark", StringComparison.OrdinalIgnoreCase);
         RequestedTheme = dark ? ElementTheme.Dark : ElementTheme.Light;
+        if (App.CurrentWindow is MainWindow mainWindow)
+        {
+            mainWindow.ApplyTitleBarTheme(dark);
+        }
 
         if (dark)
         {
@@ -3585,6 +3637,9 @@ public sealed partial class MainPage : Page
                 "updates" => "\u041e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f",
                 "checkUpdates" => "\u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f",
                 "installUpdate" => "\u0423\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435",
+                "startupUpdateTitle" => "\u0414\u043e\u0441\u0442\u0443\u043f\u043d\u043e \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435",
+                "startupUpdateBody" => "\u041d\u0430 GitHub \u0435\u0441\u0442\u044c \u043d\u043e\u0432\u0430\u044f \u0441\u0431\u043e\u0440\u043a\u0430 NotesMuchachos. \u041c\u043e\u0436\u043d\u043e \u0441\u043a\u0430\u0447\u0430\u0442\u044c \u0438 \u0443\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c \u0435\u0451 \u0441\u0435\u0439\u0447\u0430\u0441.",
+                "later" => "\u041f\u043e\u0437\u0436\u0435",
                 "updateNotChecked" => "\u041f\u0440\u043e\u0432\u0435\u0440\u043a\u0430 \u0435\u0449\u0451 \u043d\u0435 \u0437\u0430\u043f\u0443\u0441\u043a\u0430\u043b\u0430\u0441\u044c.",
                 "checkingUpdates" => "\u041f\u0440\u043e\u0432\u0435\u0440\u044f\u044e GitHub...",
                 "downloadingUpdate" => "\u0421\u043a\u0430\u0447\u0438\u0432\u0430\u044e \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435...",
@@ -3715,6 +3770,9 @@ public sealed partial class MainPage : Page
                 "updates" => "Updates",
                 "checkUpdates" => "Check GitHub updates",
                 "installUpdate" => "Install update",
+                "startupUpdateTitle" => "Update available",
+                "startupUpdateBody" => "A newer NotesMuchachos build is available on GitHub. You can download and install it now.",
+                "later" => "Later",
                 "updateNotChecked" => "Update check has not run yet.",
                 "checkingUpdates" => "Checking GitHub...",
                 "downloadingUpdate" => "Downloading update...",
