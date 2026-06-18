@@ -455,6 +455,33 @@ app.MapGet("/api/attachments/{id:guid}/download", async (Guid id, AppDbContext d
     return file is null ? Results.NotFound() : Results.File(file.Value.Stream, file.Value.MimeType, file.Value.FileName);
 }).RequireAuthorization();
 
+app.MapPatch("/api/attachments/{id:guid}", async (Guid id, RenameAttachmentRequest request, AppDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    var userId = http.User.GetUserId();
+    var attachment = await db.Attachments.FirstOrDefaultAsync(x => x.Id == id && x.UserId == userId, ct);
+    if (attachment is null)
+    {
+        return Results.NotFound();
+    }
+
+    var cleanFileName = DiagnosticsHelpers.CleanAttachmentFileName(request.FileName, attachment.FileName);
+    if (string.IsNullOrWhiteSpace(cleanFileName))
+    {
+        return Results.BadRequest(new { error = "Attachment name cannot be empty." });
+    }
+
+    attachment.FileName = cleanFileName;
+    var note = await db.Notes.FirstOrDefaultAsync(x => x.Id == attachment.NoteId && x.UserId == userId, ct);
+    if (note is not null)
+    {
+        note.UpdatedAt = DateTimeOffset.UtcNow;
+        note.SyncVersion++;
+    }
+
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(attachment.ToDto());
+}).RequireAuthorization();
+
 app.MapPost("/api/sync", async (SyncRequest request, AppDbContext db, HttpContext http, CancellationToken ct) =>
 {
     var userId = http.User.GetUserId();
@@ -567,6 +594,31 @@ internal static class DiagnosticsHelpers
         }
 
         return messages.ToArray();
+    }
+
+    public static string CleanAttachmentFileName(string fileName, string existingFileName)
+    {
+        var name = Path.GetFileName(fileName.Trim());
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return "";
+        }
+
+        foreach (var invalid in Path.GetInvalidFileNameChars())
+        {
+            name = name.Replace(invalid, '_');
+        }
+
+        if (string.IsNullOrWhiteSpace(Path.GetExtension(name)))
+        {
+            var extension = Path.GetExtension(existingFileName);
+            if (!string.IsNullOrWhiteSpace(extension))
+            {
+                name = $"{name}{extension}";
+            }
+        }
+
+        return name.Length > 260 ? name[..260] : name;
     }
 }
 

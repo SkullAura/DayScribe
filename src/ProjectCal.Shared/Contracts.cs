@@ -80,6 +80,8 @@ public sealed record UpsertTranscriptRequest(
     string Text,
     TranscriptStatus Status);
 
+public sealed record RenameAttachmentRequest(string FileName);
+
 public sealed record AttachmentDto(
     Guid Id,
     Guid NoteId,

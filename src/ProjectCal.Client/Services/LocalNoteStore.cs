@@ -381,6 +381,9 @@ public sealed class LocalNoteStore
         await file.CopyAsync(await StorageFolder.GetFolderFromPathAsync(_mediaRoot), Path.GetFileName(localPath), NameCollisionOption.ReplaceExisting);
 
         var properties = await file.GetBasicPropertiesAsync();
+        var displayFileName = type == AttachmentType.Audio
+            ? $"Recording {DateTimeOffset.Now:yyyy-MM-dd HH-mm-ss}{extension}"
+            : file.Name;
         await using var connection = Open();
         await connection.OpenAsync();
         var command = connection.CreateCommand();
@@ -392,7 +395,7 @@ public sealed class LocalNoteStore
         command.Parameters.AddWithValue("$note_id", noteId.ToString());
         command.Parameters.AddWithValue("$type", (int)type);
         command.Parameters.AddWithValue("$local_path", localPath);
-        command.Parameters.AddWithValue("$file_name", file.Name);
+        command.Parameters.AddWithValue("$file_name", displayFileName);
         command.Parameters.AddWithValue("$mime_type", type == AttachmentType.Audio ? AudioMimeType(file.Name) : PhotoMimeType(file.Name));
         command.Parameters.AddWithValue("$size", (long)properties.Size);
         await command.ExecuteNonQueryAsync();
@@ -403,7 +406,7 @@ public sealed class LocalNoteStore
             NoteId = noteId,
             Type = type,
             LocalPath = localPath,
-            FileName = file.Name,
+            FileName = displayFileName,
             MimeType = type == AttachmentType.Audio ? AudioMimeType(file.Name) : PhotoMimeType(file.Name),
             Size = (long)properties.Size,
             IsUploaded = false
@@ -526,6 +529,17 @@ public sealed class LocalNoteStore
         var command = connection.CreateCommand();
         command.CommandText = "UPDATE attachments SET is_uploaded = 1 WHERE id = $id";
         command.Parameters.AddWithValue("$id", id.ToString());
+        await command.ExecuteNonQueryAsync();
+    }
+
+    public async Task UpdateAttachmentFileNameAsync(Guid id, string fileName)
+    {
+        await using var connection = Open();
+        await connection.OpenAsync();
+        var command = connection.CreateCommand();
+        command.CommandText = "UPDATE attachments SET file_name = $file_name WHERE id = $id";
+        command.Parameters.AddWithValue("$id", id.ToString());
+        command.Parameters.AddWithValue("$file_name", fileName);
         await command.ExecuteNonQueryAsync();
     }
 

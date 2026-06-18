@@ -125,10 +125,16 @@ public sealed class ProjectCalApiClient
         await using var stream = File.OpenRead(attachment.LocalPath);
         using var file = new StreamContent(stream);
         file.Headers.ContentType = new MediaTypeHeaderValue(attachment.MimeType);
-        form.Add(file, "file", attachment.FileName);
+        form.Add(file, "file", UploadFileName(attachment));
 
         var url = $"/api/notes/{attachment.NoteId}/attachments?type={attachment.Type}&language={Uri.EscapeDataString(language)}&attachmentId={attachment.Id}";
         var response = await _http.PostAsync(url, form);
+        await EnsureSuccessAsync(response);
+    }
+
+    public async Task RenameAttachmentAsync(Guid attachmentId, string fileName)
+    {
+        var response = await _http.PatchAsJsonAsync($"/api/attachments/{attachmentId}", new RenameAttachmentRequest(fileName));
         await EnsureSuccessAsync(response);
     }
 
@@ -150,6 +156,17 @@ public sealed class ProjectCalApiClient
     private static void SaveRefreshToken(string refreshToken)
     {
         ClientAppData.Set("refresh_token", refreshToken);
+    }
+
+    private static string UploadFileName(LocalAttachment attachment)
+    {
+        if (!string.IsNullOrWhiteSpace(Path.GetExtension(attachment.FileName)))
+        {
+            return attachment.FileName;
+        }
+
+        var extension = Path.GetExtension(attachment.LocalPath);
+        return string.IsNullOrWhiteSpace(extension) ? attachment.FileName : $"{attachment.FileName}{extension}";
     }
 
     private static async Task EnsureSuccessAsync(HttpResponseMessage response)

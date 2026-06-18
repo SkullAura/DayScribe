@@ -2249,7 +2249,7 @@ public sealed partial class MainPage : Page
         {
             var attachment = audioAttachments[index];
             transcripts.TryGetValue(attachment.Id, out var transcript);
-            var title = $"Recording {index + 1} - {AudioSortTime(attachment).ToLocalTime():HH:mm}";
+            var title = AudioDisplayName(attachment, index);
             var status = AudioTranscriptStatusText(transcript);
             var preview = AudioTranscriptPreviewText(transcript);
             var isExpanded = _expandedAudioAttachmentId == attachment.Id;
@@ -2270,7 +2270,7 @@ public sealed partial class MainPage : Page
                 {
                     new TextBlock
                     {
-                        Text = $"{title} - {attachment.FileName}",
+                        Text = title,
                         FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                         TextTrimming = TextTrimming.CharacterEllipsis
                     },
@@ -2322,6 +2322,27 @@ public sealed partial class MainPage : Page
             controlRow.Children.Add(pauseButton);
             controlRow.Children.Add(stopButton);
 
+            var nameBox = new TextBox
+            {
+                Header = "Audio name",
+                Text = AudioDisplayName(attachment, index),
+                PlaceholderText = "Audio name"
+            };
+            var saveNameButton = new Button
+            {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Content = "Save name"
+            };
+            saveNameButton.Click += async (_, _) =>
+            {
+                await RunUiAsync(async () =>
+                {
+                    await RenameAudioAttachmentAsync(attachment, nameBox.Text);
+                    attachment.FileName = NormalizeAudioFileName(nameBox.Text, attachment);
+                    RenderExpandableAudioList(audioAttachments, transcripts);
+                });
+            };
+
             var transcriptBox = new Border
             {
                 Padding = new Thickness(10),
@@ -2345,6 +2366,8 @@ public sealed partial class MainPage : Page
                 Visibility = isExpanded ? Visibility.Visible : Visibility.Collapsed,
                 Children =
                 {
+                    nameBox,
+                    saveNameButton,
                     controlRow,
                     new TextBlock
                     {
@@ -2412,6 +2435,81 @@ public sealed partial class MainPage : Page
         };
         button.Click += AudioControl_Click;
         return button;
+    }
+
+    private async Task RenameAudioAttachmentAsync(LocalAttachment attachment, string requestedName)
+    {
+        var normalized = NormalizeAudioFileName(requestedName, attachment);
+        if (string.Equals(normalized, attachment.FileName, StringComparison.Ordinal))
+        {
+            StatusBox.Text = "Audio name is unchanged.";
+            return;
+        }
+
+        await _store.UpdateAttachmentFileNameAsync(attachment.Id, normalized);
+        if (_api.IsSignedIn && attachment.IsUploaded)
+        {
+            await _api.RenameAttachmentAsync(attachment.Id, normalized);
+        }
+
+        attachment.FileName = normalized;
+        AudioStatusText.Text = $"Selected {AudioStatusName(attachment)}";
+        StatusBox.Text = "Audio name saved.";
+    }
+
+    private static string AudioDisplayName(LocalAttachment attachment, int index)
+    {
+        var name = Path.GetFileNameWithoutExtension(attachment.FileName);
+        if (string.IsNullOrWhiteSpace(name) || LooksGeneratedAudioName(name))
+        {
+            return $"Recording {index + 1} - {AudioSortTime(attachment).ToLocalTime():HH:mm}";
+        }
+
+        return name;
+    }
+
+    private static string AudioStatusName(LocalAttachment attachment)
+    {
+        var name = Path.GetFileNameWithoutExtension(attachment.FileName);
+        return string.IsNullOrWhiteSpace(name) || LooksGeneratedAudioName(name)
+            ? $"Recording {AudioSortTime(attachment).ToLocalTime():HH:mm}"
+            : name;
+    }
+
+    private static string NormalizeAudioFileName(string requestedName, LocalAttachment attachment)
+    {
+        var name = Path.GetFileName(requestedName.Trim());
+        foreach (var invalid in Path.GetInvalidFileNameChars())
+        {
+            name = name.Replace(invalid, '_');
+        }
+
+        if (string.IsNullOrWhiteSpace(name) || LooksGeneratedAudioName(Path.GetFileNameWithoutExtension(name)))
+        {
+            name = $"Recording {AudioSortTime(attachment).ToLocalTime():HH-mm}";
+        }
+
+        if (string.IsNullOrWhiteSpace(Path.GetExtension(name)))
+        {
+            var extension = Path.GetExtension(attachment.FileName);
+            if (string.IsNullOrWhiteSpace(extension))
+            {
+                extension = Path.GetExtension(attachment.LocalPath);
+            }
+
+            if (!string.IsNullOrWhiteSpace(extension))
+            {
+                name = $"{name}{extension}";
+            }
+        }
+
+        return name.Length > 260 ? name[..260] : name;
+    }
+
+    private static bool LooksGeneratedAudioName(string name)
+    {
+        var compact = name.Replace("-", "", StringComparison.Ordinal).Replace("_", "", StringComparison.Ordinal);
+        return compact.Length >= 24 && compact.All(Uri.IsHexDigit);
     }
 
     private static DateTime AudioSortTime(LocalAttachment attachment)
@@ -2485,7 +2583,7 @@ public sealed partial class MainPage : Page
         _selectedAudioAttachment = attachment;
         PlayAudioButton.IsEnabled = true;
         StopAudioButton.IsEnabled = true;
-        AudioStatusText.Text = $"Selected {attachment.FileName}";
+        AudioStatusText.Text = $"Selected {AudioStatusName(attachment)}";
         SetTranscriptState(transcript);
         SetMediaAction(message, false);
     }
@@ -2493,7 +2591,7 @@ public sealed partial class MainPage : Page
     private void PauseAudioPlayback(LocalAttachment attachment)
     {
         _audioPlayer?.Pause();
-        AudioStatusText.Text = $"Paused: {attachment.FileName}";
+        AudioStatusText.Text = $"Paused: {AudioStatusName(attachment)}";
         SetMediaAction("Audio paused.", false);
         StatusBox.Text = "Audio paused.";
     }
@@ -2514,7 +2612,7 @@ public sealed partial class MainPage : Page
             }
         }
 
-        AudioStatusText.Text = $"Stopped: {attachment.FileName}";
+        AudioStatusText.Text = $"Stopped: {AudioStatusName(attachment)}";
         SetMediaAction("Audio stopped.", false);
         StatusBox.Text = "Audio stopped.";
     }
@@ -2585,7 +2683,7 @@ public sealed partial class MainPage : Page
                     {
                         new TextBlock
                         {
-                            Text = $"{title} · {attachment.FileName}",
+                            Text = $"{title} · {AudioStatusName(attachment)}",
                             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                             TextTrimming = TextTrimming.CharacterEllipsis
                         },
@@ -2627,7 +2725,7 @@ public sealed partial class MainPage : Page
         _selectedAudioAttachment = selection.Attachment;
         PlayAudioButton.IsEnabled = true;
         StopAudioButton.IsEnabled = true;
-        AudioStatusText.Text = $"Selected {selection.Attachment.FileName}";
+        AudioStatusText.Text = $"Selected {AudioStatusName(selection.Attachment)}";
         SetTranscriptState(selection.Transcript);
         SetMediaAction("Selected audio. Press Play to listen.", false);
     }
@@ -2653,7 +2751,7 @@ public sealed partial class MainPage : Page
         }
 
         _audioPlayer.Play();
-        AudioStatusText.Text = $"{T("playingAudio")}: {attachment.FileName}";
+        AudioStatusText.Text = $"{T("playingAudio")}: {AudioStatusName(attachment)}";
         SetMediaAction(T("playingAudio"), false);
         StatusBox.Text = "Playing selected audio.";
     }
