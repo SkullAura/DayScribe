@@ -2,11 +2,9 @@ using System.Diagnostics;
 using System.Net;
 
 const string AppName = "DayScribe";
-const string LegacyAppName = "NotesMuchachos";
-const string ManagedCloudApiUrl = "https://notesmuchachos.onrender.com";
+const string ManagedCloudApiUrl = "https://dayscribe.onrender.com";
 
 var root = AppContext.BaseDirectory;
-MigrateLegacyAppData();
 var logs = Path.Combine(
     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
     AppName,
@@ -112,25 +110,6 @@ static string ResolveManagedApiUrl()
     return Environment.GetEnvironmentVariable("PROJECTCAL_API_URL")
         ?? Environment.GetEnvironmentVariable("PROJECTCAL_API_URL", EnvironmentVariableTarget.User)
         ?? ManagedCloudApiUrl;
-}
-
-static void MigrateLegacyAppData()
-{
-    var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-    var legacyRoot = Path.Combine(localAppData, LegacyAppName);
-    var newRoot = Path.Combine(localAppData, AppName);
-    if (!Directory.Exists(legacyRoot) || Directory.Exists(newRoot))
-    {
-        return;
-    }
-
-    try
-    {
-        Directory.Move(legacyRoot, newRoot);
-    }
-    catch
-    {
-    }
 }
 
 static async Task WaitForApiAsync()

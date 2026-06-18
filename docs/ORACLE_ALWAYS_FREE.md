@@ -59,7 +59,7 @@ ssh -i C:\path\to\oracle-key.key ubuntu@YOUR_ORACLE_PUBLIC_IP
 On the VM:
 
 ```bash
-git clone https://github.com/SkullAura/NotesMuchachos.git DayScribe
+git clone https://github.com/SkullAura/DayScribe.git
 cd DayScribe
 git checkout exe-installer
 chmod +x deploy/oracle/install-docker-ubuntu.sh

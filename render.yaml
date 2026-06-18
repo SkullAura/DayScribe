@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: notesmuchachos-api
+    name: dayscribe-api
     runtime: docker
     plan: free
     dockerfilePath: src/ProjectCal.Api/Dockerfile
